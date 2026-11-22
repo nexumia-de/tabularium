@@ -28,6 +28,15 @@
         "projectAndTagNames",
         "ids"
       ]
+    },
+    {
+      "recipient": "GitHub (setup only: lists the repositories your token reaches)",
+      "hosts": [
+        "api.github.com"
+      ],
+      "data": [
+        "credentials"
+      ]
     }
   ],
   "iFrame": true,

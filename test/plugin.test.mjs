@@ -3,7 +3,7 @@
 // new error, and the settings page's messages.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildPluginJs, buildNodeScript, buildZip } from '../scripts/build.mjs';
+import { buildPluginJs, buildNodeScript, buildSetupScript, buildZip } from '../scripts/build.mjs';
 
 function load({ results = {}, secret = null } = {}) {
   const calls = [];
@@ -44,6 +44,12 @@ function load({ results = {}, secret = null } = {}) {
     async executeNodeScript(request) {
       const { step } = request.args[0];
       calls.push(step);
+      if (['home', 'repositories', 'clone'].includes(step)) {
+        assert.equal(request.script, buildSetupScript());
+        this.setupRequests = [...(this.setupRequests || []), request.args[0]];
+        const result = results[step] ?? { ok: true };
+        return { success: true, result };
+      }
       assert.equal(request.script, buildNodeScript());
       const result = results[step] ?? { ok: true };
       return { success: true, result: typeof result === 'function' ? result() : result };
@@ -134,4 +140,22 @@ test('the ZIP holds manifest, plugin and page', () => {
   const text = data.toString('latin1');
   for (const file of ['manifest.json', 'plugin.js', 'index.html']) assert.ok(text.includes(file));
   assert.equal(data.readUInt32LE(data.length - 22), 0x06054b50);
+});
+
+test('the guided setup: repositories and clone go to the setup script; the folder is kept, the token not', async () => {
+  const { api, calls } = load({
+    results: {
+      repositories: { ok: true, repositories: [{ fullName: 'me/sp-sync', private: true, canWrite: true }] },
+      clone: { ok: true, folder: '/home/me/sp-sync', existing: false },
+    },
+  });
+  await api.ready();
+  const found = await api.message({ type: 'repositories', token: 'secret' });
+  assert.equal(found.repositories[0].fullName, 'me/sp-sync');
+  const setUp = await api.message({ type: 'setup', token: 'secret', repository: 'me/sp-sync', folder: '/home/me/sp-sync' });
+  assert.equal(setUp.result.ok, true);
+  assert.equal(setUp.settings.folder, '/home/me/sp-sync');
+  assert.deepEqual(calls, ['repositories', 'clone']);
+  assert.equal(api.setupRequests[1].git, '/usr/bin/git');
+  assert.ok(!api.secrets.get('settings').includes('secret'));
 });

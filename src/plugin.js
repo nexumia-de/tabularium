@@ -3,10 +3,12 @@
 // Productivity's own sync into the local folder (triggerSync), Git
 // `finish` (commit, push). Runs on a timer, when the window gets focus and
 // after local changes. Settings are per device (PluginAPI secret storage);
-// the settings page (index.html) talks to this file through onMessage.
+// the settings page (index.html) talks to this file through onMessage and
+// also runs the guided setup (git-setup.cjs) through it.
 // Logs and messages name codes and counts, never task data.
 
 const NODE_SCRIPT = '__TABULARIUM_NODE_SCRIPT__';
+const SETUP_SCRIPT = '__TABULARIUM_SETUP_SCRIPT__';
 const SETTINGS_KEY = 'settings';
 const DEFAULTS = { folder: '', git: '/usr/bin/git', intervalMinutes: 5 };
 const MIN_GAP_MS = 60 * 1000; // focus and changes start a cycle at most once a minute
@@ -70,6 +72,30 @@ async function nodeStep(step) {
   });
   if (!result || !result.success) return { ok: false, code: 'node', detail: (result && result.error) || '' };
   return result.result || { ok: false, code: 'error', detail: '' };
+}
+
+// The guided setup (src/git-setup.cjs, docs/setup.md). The token goes to
+// the Node step only and is kept in the repository's .git, not here.
+async function setupStep(request) {
+  if (typeof PluginAPI.executeNodeScript !== 'function') return { ok: false, code: 'node', detail: '' };
+  const result = await PluginAPI.executeNodeScript({
+    script: SETUP_SCRIPT,
+    args: [{ ...request, git: settings.git }],
+    timeout: NODE_TIMEOUT_MS,
+  });
+  if (!result || !result.success) return { ok: false, code: 'node', detail: (result && result.error) || '' };
+  return result.result || { ok: false, code: 'error', detail: '' };
+}
+
+async function setUp(message) {
+  const cloned = await setupStep({
+    step: 'clone',
+    token: message.token,
+    repository: message.repository,
+    folder: message.folder,
+  });
+  if (cloned.ok) await saveSettings({ ...settings, folder: cloned.folder });
+  return cloned;
 }
 
 function report(next) {
@@ -160,6 +186,9 @@ async function onMessage(message) {
     return { settings, status, running: !!running };
   }
   if (type === 'sync') return { settings, status: await cycle(), running: false };
+  if (type === 'home') return setupStep({ step: 'home' });
+  if (type === 'repositories') return setupStep({ step: 'repositories', token: message.token });
+  if (type === 'setup') return { result: await setUp(message), settings };
   return { error: 'unknown message' };
 }
 

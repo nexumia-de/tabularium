@@ -27,6 +27,9 @@ generated: { by: claude-code/2.1.330, at: 2026-11-22 }
 
 Why this split: [decision](decisions/branch-handoff.md).
 
+Set up with the page's guided setup ([setup](setup.md)) or by hand
+(any clone that pushes without asking).
+
 # The cycle
 
 1. **prepare** (Git):

@@ -1,5 +1,6 @@
-// Builds the plugin: plugin.js gets the Git cycle (src/git-cycle.cjs) as
-// the script it hands to PluginAPI.executeNodeScript, and
+// Builds the plugin: plugin.js gets the Git cycle (src/git-cycle.cjs) and
+// the guided setup (src/git-setup.cjs) as the scripts it hands to
+// PluginAPI.executeNodeScript, and
 // `node scripts/build.mjs` writes dist/tabularium-<version>.zip with
 // manifest.json, plugin.js and index.html. No dependencies: the ZIP is
 // written here (stored entries, CRC-32 from node:zlib).
@@ -15,11 +16,20 @@ export function buildNodeScript() {
   return `${read('src/git-cycle.cjs')}\nreturn await tabulariumRun(args[0]);\n`;
 }
 
+export function buildSetupScript() {
+  return `${read('src/git-setup.cjs')}\nreturn await setupRun(args[0]);\n`;
+}
+
 export function buildPluginJs() {
-  const source = read('src/plugin.js');
-  const marker = "'__TABULARIUM_NODE_SCRIPT__'";
-  if (!source.includes(marker)) throw new Error('plugin.js has no node script marker');
-  return source.replace(marker, () => JSON.stringify(buildNodeScript()));
+  let source = read('src/plugin.js');
+  for (const [marker, script] of [
+    ["'__TABULARIUM_NODE_SCRIPT__'", buildNodeScript()],
+    ["'__TABULARIUM_SETUP_SCRIPT__'", buildSetupScript()],
+  ]) {
+    if (!source.includes(marker)) throw new Error(`plugin.js has no marker ${marker}`);
+    source = source.replace(marker, () => JSON.stringify(script));
+  }
+  return source;
 }
 
 function zip(files) {
