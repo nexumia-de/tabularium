@@ -1,10 +1,19 @@
 # A tag v<version> builds the plugin ZIP and attaches it with its SHA-256
-# checksum to a GitHub release. The tag must match src/manifest.json.
+# checksum to the tag's GitHub release: a release made by hand in GitHub's
+# page (with the tag) gets the files added; without one, the workflow
+# creates it. The tag must match src/manifest.json. For a tag whose run
+# failed, start it by hand with that tag (Actions → Release → Run
+# workflow).
 name: Release
 
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to build and attach the files to, e.g. v0.2.0
+        required: true
 
 permissions:
   contents: write
@@ -12,20 +21,28 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-24.04
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ inputs.tag || github.ref_name }}
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
       - name: Check the tag against the manifest
         run: |
           version=$(node -p "require('./src/manifest.json').version")
-          [ "v$version" = "$GITHUB_REF_NAME" ] || { echo "::error::Tag $GITHUB_REF_NAME, manifest $version"; exit 1; }
+          [ "v$version" = "$TAG" ] || { echo "::error::Tag $TAG, manifest $version"; exit 1; }
       - run: npm run check
-      - name: Create the release
+      - name: Attach the files to the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           cd dist
           sha256sum *.zip > SHA256SUMS
-          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "Git Sync $GITHUB_REF_NAME" --generate-notes *.zip SHA256SUMS
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber *.zip SHA256SUMS
+          else
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "Git Sync $TAG" --generate-notes *.zip SHA256SUMS
+          fi
