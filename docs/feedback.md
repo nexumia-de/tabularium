@@ -14,8 +14,8 @@ sources:
     title: GitHub Docs, creating an issue from a URL query
     url: https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/creating-an-issue#creating-an-issue-from-a-url-query
   - id: pat
-    title: GitHub Changelog 2025-08-26, Template URLs for fine-grained PATs
-    url: https://github.blog/changelog/2025-08-26-template-urls-for-fine-grained-pats-and-updated-permissions-ui/
+    title: GitHub Docs, Managing your personal access tokens (fine-grained tokens reach only their resource owner's repositories; classic token scopes)
+    url: https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens
   - id: sp20
     title: Super Productivity 20.0.0, commit 4db0e112, packages/plugin-api/src/types.ts and src/app/plugins/util/plugin-data-sharing.util.ts
     url: https://github.com/johannesjo/super-productivity/tree/4db0e11236bc784d3184a9e252930b4bd53df823
@@ -55,9 +55,11 @@ so.
   only ([setup](setup.md#the-token)); it cannot write issues in
   nexumia-de/tabularium, and widening it would give a token that can
   rewrite the sync data more reach than it needs.
-- A separate fine-grained token with **Issues: Read and write** on this
-  repository; **Create a Token** opens GitHub's form with name,
-  description and `issues=write` filled in[^pat].
+- A separate **classic** token with the `public_repo` scope; **Create a
+  Token** opens `https://github.com/settings/tokens/new?scopes=public_repo&description=Report%20a%20Problem`.
+  A fine-grained token only writes to repositories of its resource
+  owner[^pat], so it works only for members of nexumia-de; anyone else
+  gets `no-access` with one (phosh-toolkit made the same change).
 - Sent only with a report and kept only after GitHub created the issue,
   per device in Super Productivity's secret storage for the plugin (key
   `report-token`, not synced, not in backups); the page itself cannot
@@ -95,7 +97,6 @@ the forms' field ids) and `test/plugin.test.mjs` (sending through the
 GitHub stand-in: only text, version and device in the issue; the token
 kept after success, not after a refusal or without a connection; the
 sync token refused; Forget; the built page). Not checked against
-github.com: whether a fine-grained token may create issues in a public
-repository of another owner (if not, **Open on GitHub** still works),
+github.com: creating an issue with a classic `public_repo` token,
 the form prefilling, and the clipboard inside Super Productivity's
 iframe.

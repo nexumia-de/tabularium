@@ -24,10 +24,10 @@
         <label for="report-token">GitHub Token</label>
         <input id="report-token" type="password" autocomplete="off" />
         <p class="hint">
-          Fine-grained, with “Issues: Read and write” for this app’s repository; not the sync token,
+          Classic, with the “public_repo” scope; not the sync token,
           which may only write your sync repository.
         </p>
-        <div class="buttons"><a class="button" target="_blank" rel="noopener" href="https://github.com/settings/personal-access-tokens/new?name=Git+Sync+reports&amp;description=Report+problems+from+Git+Sync&amp;issues=write">Create a Token</a></div>
+        <div class="buttons"><a class="button" target="_blank" rel="noopener" href="https://github.com/settings/tokens/new?scopes=public_repo&amp;description=Report%20a%20Problem">Create a Token</a></div>
       </div>
       <div id="report-saved" hidden>
         <p>Token Saved <span class="hint">(kept in Super Productivity for this plugin)</span></p>
