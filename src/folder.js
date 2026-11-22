@@ -42,9 +42,21 @@ for (const [name, content] of Object.entries(args[1])) {
   fs.renameSync(temporary, full);
 }
 return { ok: true };`,
+  // The home folder, the suggested sync folder (~/sp-sync) and whether
+  // Super Productivity runs as Flatpak: from Flathub its home folder is
+  // read-only, so the page shows the one command that lets it write in
+  // the sync folder (docs/super-productivity-facts.md).
   home: `
+const fs = require('fs');
 const os = require('os');
-return { home: os.homedir() };`,
+const path = require('path');
+const home = os.homedir();
+let appId = null;
+if (fs.existsSync('/.flatpak-info')) {
+  const info = fs.readFileSync('/.flatpak-info', 'utf8').match(/^name=(.+)$/m);
+  appId = info ? info[1].trim() : 'com.super_productivity.SuperProductivity';
+}
+return { home, flatpak: appId !== null, appId, suggested: path.join(home, 'sp-sync') };`,
 };
 
 async function folderRun(name, args) {
@@ -53,7 +65,10 @@ async function folderRun(name, args) {
   }
   const result = await PluginAPI.executeNodeScript({ script: FOLDER_SCRIPTS[name], args, timeout: 5000 });
   if (!result || !result.success) {
-    throw Object.assign(new Error((result && result.error) || 'node script failed'), { code: 'node' });
+    const message = (result && result.error) || 'node script failed';
+    // A file system error means the folder, not the permission to run.
+    const code = /\b(ENOENT|EROFS|EACCES|EPERM|ENOTDIR)\b/.test(message) ? 'folder-not-writable' : 'node';
+    throw Object.assign(new Error(message), { code, detail: message });
   }
   return result.result;
 }
@@ -67,5 +82,5 @@ async function folderWrite(folder, changes) {
 }
 
 async function folderHome() {
-  return (await folderRun('home', [])).home;
+  return folderRun('home', []);
 }

@@ -77,6 +77,8 @@ test('guided setup: repositories, then setup creates the folder and runs the fir
   folder = env.folder;
   const home = await env.api.message({ type: 'home' });
   assert.equal(home.ok, true);
+  assert.equal(home.flatpak, false);
+  assert.equal(home.suggested, join(home.home, 'sp-sync'));
   const found = await env.api.message({ type: 'repositories', token: TOKEN });
   assert.deepEqual(found.repositories.map((r) => r.fullName), [REPO]);
   const done = await env.api.message({ type: 'setup', token: TOKEN, repository: REPO, folder });
@@ -114,6 +116,10 @@ test('not set up, a bad setup and a wrong token are named; one snack per new err
   assert.equal((await setup('x', env.folder)).result.code, 'bad-repository');
   assert.equal((await setup(REPO, 'relative')).result.code, 'bad-folder');
   assert.equal((await setup(REPO, env.folder, 'wrong')).result.code, 'token-refused');
+  // A folder Super Productivity may not create (Flathub: home is read-only).
+  const notWritable = (await setup(REPO, '/proc/1/git-sync-test')).result;
+  assert.equal(notWritable.code, 'folder-not-writable');
+  assert.match(notWritable.detail, /ENOENT|EROFS|EACCES/);
   assert.deepEqual(env.calls, []);
   assert.equal((await env.api.message({ type: 'repositories', token: 'wrong' })).code, 'token-refused');
 });

@@ -19,6 +19,8 @@ const START_DELAY_MS = 30 * 1000; // after Super Productivity's own start-up syn
 const MESSAGES = {
   'not-set-up': 'Git Sync: set it up on its page first.',
   'no-folder': 'Git Sync: the sync folder does not exist.',
+  'folder-not-writable':
+    'Git Sync: Super Productivity may not write in the sync folder; see Git Sync’s page.',
   'token-refused': 'Git Sync: GitHub refused the token; set up again with a new one.',
   forbidden: 'Git Sync: the token may not write to the repository (Contents: read and write needed).',
   'not-found': 'Git Sync: the repository was not found with this token.',
@@ -179,7 +181,7 @@ async function setUp(message) {
   try {
     await folderRun('write', [folder, {}]);
   } catch (error) {
-    return { ok: false, code: error.code || 'node', detail: error.message };
+    return { ok: false, code: error.code || 'node', detail: error.detail || error.message };
   }
   if (repository !== settings.repository || folder !== settings.folder) {
     state = null;
@@ -206,7 +208,7 @@ async function onMessage(message) {
   }
   if (type === 'home') {
     try {
-      return { ok: true, home: await folderHome() };
+      return { ok: true, ...(await folderHome()) };
     } catch (error) {
       return { ok: false, code: error.code || 'node' };
     }
