@@ -12,7 +12,7 @@ GitHub. Not a GTK app. Knowledge of this repository: [docs/index.md](docs/index.
   ([protocol](docs/protocol.md)). A change to it changes
   `docs/protocol.md`, the tests here and `pensum/sync/github.py` in the
   same round, with pull requests in both repositories.
-- `src/git-cycle.cjs` runs in a Node process Super Productivity starts
+- `src/git-cycle.cjs` and `src/git-setup.cjs` run in a Node process Super Productivity starts
   with an empty environment (`executeNodeScript`); only Node built-ins
   and the `git` command. `src/plugin.js` runs in the app window.
 - Never force-push, reset, merge or rebase `main` in the user's

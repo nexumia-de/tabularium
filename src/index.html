@@ -56,6 +56,47 @@
         color: var(--c-contrast, #fff);
         border-color: transparent;
       }
+      details {
+        margin: 16px 0;
+        border: 1px solid var(--divider-color, currentColor);
+        border-radius: 8px;
+        padding: 0 16px 16px;
+      }
+      summary {
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      ol {
+        padding-left: 20px;
+      }
+      ol > li {
+        margin: 16px 0;
+      }
+      a.button {
+        display: inline-flex;
+        align-items: center;
+        min-height: 44px;
+        padding: 0 16px;
+        border-radius: 6px;
+        border: 1px solid var(--divider-color, currentColor);
+        color: inherit;
+        text-decoration: none;
+      }
+      select {
+        box-sizing: border-box;
+        width: 100%;
+        min-height: 44px;
+        font: inherit;
+        color: inherit;
+        background: transparent;
+      }
+      .result {
+        margin-top: 8px;
+        white-space: pre-wrap;
+      }
       #status {
         margin-top: 24px;
         white-space: pre-wrap;
@@ -66,9 +107,42 @@
     <h1>Git Sync</h1>
     <p>
       Super Productivity syncs into a local folder; Git Sync keeps that folder in a Git repository
-      and takes the changes Day Planner sends. Set Super Productivity's sync to “Local file” with
-      this folder and turn on “manual sync only”.
+      and takes the changes Day Planner sends.
     </p>
+    <details id="setup">
+      <summary>Set Up Step by Step</summary>
+      <ol>
+        <li>
+          Create a private repository for the sync folder on GitHub (the form opens filled in).
+          <div><a class="button" target="_blank" rel="noopener" href="https://github.com/new?name=sp-sync&amp;visibility=private&amp;description=Super+Productivity+sync+folder+(Git+Sync)">Create Repository</a></div>
+        </li>
+        <li>
+          Create a token for this computer. Name, expiry and “Contents: read and write” are filled
+          in; under “Repository access” choose “Only select repositories” and pick the new
+          repository.
+          <div><a class="button" target="_blank" rel="noopener" href="https://github.com/settings/personal-access-tokens/new?name=Git+Sync+(desktop)&amp;description=Super+Productivity+sync+folder&amp;expires_in=366&amp;contents=write">Create Token</a></div>
+        </li>
+        <li>
+          <label for="token">Paste the token</label>
+          <input id="token" type="password" autocomplete="off" />
+          <div class="buttons"><button type="button" id="find">Find Repositories</button></div>
+          <label for="repository">Repository</label>
+          <select id="repository"><option value="">Find repositories first</option></select>
+          <div class="result" id="find-result" role="status" aria-live="polite"></div>
+        </li>
+        <li>
+          <label for="target">Folder on this computer</label>
+          <input id="target" autocomplete="off" />
+          <p class="hint">A new, empty folder; Git Sync copies the repository there.</p>
+          <div class="buttons"><button type="button" class="primary" id="create">Set Up Folder</button></div>
+          <div class="result" id="setup-result" role="status" aria-live="polite"></div>
+        </li>
+        <li>
+          In Super Productivity: Settings → Sync → <b>Local file</b>, choose that folder and switch
+          on <b>manual sync only</b>. Then Sync Now below.
+        </li>
+      </ol>
+    </details>
     <form id="form">
       <label for="folder">Sync folder</label>
       <input id="folder" autocomplete="off" placeholder="/home/you/sp-sync" />
@@ -131,7 +205,59 @@
         $('status').textContent = 'Syncing…';
         show(await send({ type: 'sync' }));
       });
-      send({ type: 'get' }).then(show, (e) => ($('status').textContent = e.message));
+      const SETUP_MESSAGES = {
+        'no-token': 'Paste the token first.',
+        'token-refused': 'GitHub refused the token.',
+        unreachable: 'GitHub is not reachable.',
+        server: 'GitHub answered with an error.',
+        'bad-repository': 'Choose a repository first.',
+        'no-folder': 'Enter a full folder path.',
+        'folder-not-empty': 'The folder is not empty and not a copy of this repository.',
+        'clone-refused': 'GitHub refused access: does the token include this repository?',
+        'clone-failed': 'Copying the repository failed.',
+        'no-git': 'The git command was not found.',
+        'not-on-main': 'The repository is not on the branch main.',
+        node: 'Super Productivity did not run the step (permission or desktop app needed).',
+      };
+      const problem = (r) => (SETUP_MESSAGES[r.code] || `Failed (${r.code}).`) + (r.detail ? `\n${r.detail}` : '');
+      $('find').addEventListener('click', async () => {
+        $('find-result').textContent = 'Asking GitHub…';
+        const r = await send({ type: 'repositories', token: $('token').value });
+        if (!r.ok) return ($('find-result').textContent = problem(r));
+        const list = r.repositories.filter((repo) => repo.canWrite);
+        $('repository').replaceChildren(
+          ...list.map((repo) => new Option(`${repo.fullName}${repo.private ? '' : ' (public!)'}`, repo.fullName)),
+        );
+        const preferred = list.find((repo) => repo.fullName.endsWith('/sp-sync'));
+        if (preferred) $('repository').value = preferred.fullName;
+        $('find-result').textContent = list.length
+          ? list.some((repo) => !repo.private)
+            ? 'Use a private repository: everyone can read a public one.'
+            : ''
+          : 'The token reaches no repository it may write to.';
+      });
+      $('create').addEventListener('click', async () => {
+        $('setup-result').textContent = 'Setting up…';
+        const r = await send({
+          type: 'setup',
+          token: $('token').value,
+          repository: $('repository').value,
+          folder: $('target').value.trim(),
+        });
+        if (!r.result.ok) return ($('setup-result').textContent = problem(r.result));
+        $('token').value = '';
+        $('folder').value = r.settings.folder;
+        $('setup-result').textContent = `Ready: ${r.result.folder}. Now set this folder in Super Productivity's sync settings (step 5).`;
+      });
+      send({ type: 'get' })
+        .then((state) => {
+          show(state);
+          if (!state.settings.folder) $('setup').open = true;
+        })
+        .catch((e) => ($('status').textContent = e.message));
+      send({ type: 'home' }).then((r) => {
+        if (r && r.ok && !$('target').value) $('target').value = `${r.home}/sp-sync`;
+      });
     </script>
   </body>
 </html>
