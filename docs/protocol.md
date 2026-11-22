@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Git Sync protocol
-description: How Super Productivity's local sync folder travels through a Git repository - only the plugin writes main, Day Planner hands its changes over on day-planner, the cycle prepare / Super Productivity sync / finish, stale hand-overs, and what each side checks.
+description: How Super Productivity's local sync folder travels through a GitHub repository - only the plugin writes main, Day Planner hands its changes over on day-planner, the cycle prepare / Super Productivity sync / finish through GitHub's API, stale hand-overs, and what each side checks.
 tags: [protocol, git, sync, super-productivity, day-planner]
 sources:
   - id: sp20
@@ -15,39 +15,53 @@ generated: { by: claude-code/2.1.330, at: 2026-11-22 }
 
 # Parts
 
-- **The sync folder**: a clone of a private repository on the desktop,
-  on branch `main`. Super Productivity's "Local file" sync writes its
-  files there (`sync-data.json`, or the split v3 files, optionally
-  compressed and encrypted)[^sp20].
-- **The plugin** (`src/plugin.js`, `src/git-cycle.cjs`): the only writer
-  of `main`.
-- **Day Planner**[^pensum]: reads through GitHub's REST API and writes
-  only the branch `day-planner`, one commit per Send Changes on top of
-  what it read.
+- **The sync folder**: a folder on the desktop. Super Productivity's
+  "Local file" sync writes its files there (`sync-data.json`, or the
+  split v3 files, optionally compressed and encrypted)[^sp20]. It is not
+  a Git checkout: the plugin compares its files with the repository by
+  their blob ids.
+- **The plugin**: the only writer of `main`, through GitHub's REST API
+  (`src/github.js`) with a fine-grained token kept per device; the
+  folder is read and written by small scripts that Super Productivity
+  runs in its own process (`src/folder.js`, [facts](super-productivity-facts.md)).
+- **Day Planner**[^pensum]: reads through the same API and writes only
+  the branch `day-planner`, one commit per Send Changes on top of what
+  it read.
 
-Why this split: [decision](decisions/branch-handoff.md).
+Why this split: [decision](decisions/branch-handoff.md). Why no `git`
+command: [decision](decisions/api-not-git.md).
 
-Set up with the page's guided setup ([setup](setup.md)) or by hand
-(any clone that pushes without asking).
+Set up with the page's guided setup ([setup](setup.md)).
 
-# The cycle
+# The cycle (`src/cycle.js`)
 
-1. **prepare** (Git):
-   - check the folder: top level of a repository, on `main`;
-   - `git fetch --prune origin`;
-   - commit whatever Super Productivity wrote outside the plugin (its
-     sync at start and before it quits, a click on its sync button);
-   - `main` behind `origin/main` → fast-forward; ahead → fine (pushed in
-     finish); apart → stop with `diverged`, nothing is pushed;
-   - `origin/day-planner` ahead of `main` → fast-forward `main` to it
-     (`took` = number of commits); behind or equal → delivered, nothing
-     to do; apart → `stale`, left alone.
+The plugin keeps per device which commit the folder matched last and
+each file's blob id (`state`).
+
+1. **prepare**:
+   - read the folder (top-level files without dotfiles) and hash them;
+   - `main` missing (empty repository) → a first commit with the note
+     file `.git-sync` through the Contents API;
+   - first cycle on this device: the folder empty → take the
+     repository's files; the repository without files → keep the folder
+     (committed next); both equal → nothing; both different → stop
+     (`both-have-data`);
+   - `main` moved since the last commit (another computer) and the
+     folder unchanged → take its files; folder changed too → stop
+     (`diverged`); folder already equal to `main` (a cycle that ended
+     before saving) → just note it;
+   - files Super Productivity wrote outside a cycle (its sync at start
+     and before it quits, a click on its sync button) → one commit on
+     top, `main` moved forward (`force: false`);
+   - `day-planner` ahead of `main` → its files into the folder, `main`
+     moved to it (`took` = commits); behind or equal → delivered; apart →
+     `stale`, left alone.
 2. **Super Productivity's sync** (`PluginAPI.triggerSync()`, awaited):
    it reads the folder as Day Planner left it, applies Day Planner's ops
    like those of any other client and writes its own.
-3. **finish** (Git): commit what it wrote, `git push origin HEAD:main`
-   without force. A rejected push is reported (`push-rejected`); the
-   next cycle fetches and tries again.
+3. **finish**: what it wrote → one commit on top, `main` moved forward;
+   GitHub refusing the move (422, someone moved `main`) is reported
+   (`push-rejected`) and the next cycle stops at `diverged`.
 
 Triggers: a timer (5 minutes by default), window focus and 20 s after a
 local data change (both at most once a minute), Sync Now, and once 30 s
@@ -73,7 +87,7 @@ syncVersion each, so neither can simply win:
 
 | | `main` | `day-planner` |
 |---|---|---|
-| Plugin | commit Super Productivity's files, fast-forward, push | read |
+| Plugin | commit Super Productivity's files, move forward | read |
 | Day Planner | read | create, fast-forward; force only after a stale hand-over |
 
 One desktop and one Day Planner per repository; a second desktop is
@@ -81,10 +95,10 @@ detected as `diverged` or `push-rejected`, never overwritten.
 
 # Error codes
 
-`no-folder`, `no-git`, `not-a-repository`, `not-on-main`,
-`fetch-failed`, `diverged`, `push-rejected`, `push-failed`, `git-failed`,
-`node` (Super Productivity did not run the step: not the desktop app, or
-no consent), `error`. The plugin shows one snack per new code; the
+`not-set-up`, `no-folder`, `token-refused`, `forbidden`, `not-found`,
+`unreachable`, `server`, `both-have-data`, `diverged`, `push-rejected`,
+`node` (Super Productivity did not run a folder script: no consent, or
+not the desktop app), `error`. The plugin shows one snack per new code; the
 settings page shows the last result.
 
 [^sp20]: Super Productivity 20.0.0: `packages/sync-providers/src/file-based/local-file/`.

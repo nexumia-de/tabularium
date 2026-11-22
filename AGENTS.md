@@ -12,15 +12,18 @@ GitHub. Not a GTK app. Knowledge of this repository: [docs/index.md](docs/index.
   ([protocol](docs/protocol.md)). A change to it changes
   `docs/protocol.md`, the tests here and `pensum/sync/github.py` in the
   same round, with pull requests in both repositories.
-- `src/git-cycle.cjs` and `src/git-setup.cjs` run in a Node process Super Productivity starts
-  with an empty environment (`executeNodeScript`); only Node built-ins
-  and the `git` command. `src/plugin.js` runs in the app window.
-- Never force-push, reset, merge or rebase `main` in the user's
-  repository; the cycle only commits what Super Productivity wrote,
-  fast-forwards and pushes. Never write task data into logs, commit
-  messages or snacks.
+- The plugin is `src/folder.js`, `github.js`, `blob-sha.js`, `cycle.js`
+  and `plugin.js`, joined by `scripts/build.mjs`; all run in the app
+  window. No `git` command and no Node process: the folder scripts in
+  `folder.js` must pass Super Productivity's check for running inside
+  its own process (`scripts/host.mjs`, `DIRECT_SCRIPT_CHECK`), or they
+  fail in the Flathub build; GitHub goes through `PluginAPI.request`.
+- Never move `main` backwards or with force; the cycle only commits what
+  Super Productivity wrote and fast-forwards. Never write task data into
+  logs, commit messages or snacks.
 - No dependencies: Node's test runner, the ZIP is written by
-  `scripts/build.mjs`.
+  `scripts/build.mjs`; `scripts/host.mjs` stands in for Super
+  Productivity in tests here and in Day Planner's end-to-end test.
 - Super Productivity facts come from its source at a recorded commit
   ([facts](docs/super-productivity-facts.md)).
 

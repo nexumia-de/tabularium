@@ -1,25 +1,29 @@
 {
   "id": "tabularium",
   "name": "Git Sync",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "manifestVersion": 1,
   "minSupVersion": "20.0.0",
-  "description": "Keeps Super Productivity's local sync folder in a Git repository, so Day Planner on the phone shares the same data.",
+  "description": "Keeps Super Productivity's local sync folder in a GitHub repository, so Day Planner on the phone shares the same data.",
   "author": "nexumia",
   "hooks": [
     "dataChanged"
   ],
   "permissions": [
     "nodeExecution",
+    "http",
     "triggerSync",
     "showSnack",
     "showIndexHtmlAsView"
   ],
   "dataSharing": [
     {
-      "recipient": "Your Git repository (the remote of the sync folder)",
-      "userServer": true,
+      "recipient": "GitHub (your private sync repository)",
+      "hosts": [
+        "api.github.com"
+      ],
       "data": [
+        "credentials",
         "taskTitles",
         "taskNotes",
         "taskSchedule",
@@ -28,17 +32,11 @@
         "projectAndTagNames",
         "ids"
       ]
-    },
-    {
-      "recipient": "GitHub (setup only: lists the repositories your token reaches)",
-      "hosts": [
-        "api.github.com"
-      ],
-      "data": [
-        "credentials"
-      ]
     }
   ],
   "iFrame": true,
-  "icon": "cloud_sync"
+  "icon": "cloud_sync",
+  "allowedHosts": [
+    "api.github.com"
+  ]
 }

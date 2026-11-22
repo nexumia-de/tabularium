@@ -7,22 +7,18 @@ Phosh phone reads and changes the same data through GitHub, without a
 WebDAV server.
 
 Super Productivity still does its own sync into the folder, with its own
-conflict handling; the plugin only moves that folder through Git around
-each sync: fetch, take what Day Planner sent, let Super Productivity
-sync, commit, push. How it works: [docs/protocol.md](docs/protocol.md).
+conflict handling; around each sync the plugin brings the repository's
+and Day Planner's changes into the folder and afterwards commits what
+Super Productivity wrote, through GitHub's API. How it works: [docs/protocol.md](docs/protocol.md).
 
 ## Requirements
 
 - Super Productivity **20.0.0 or newer as a desktop app** (Linux, macOS,
-  Windows). The plugin runs `git`, which Super Productivity allows only in
-  its desktop app and only after you agree once.
-- `git` on the computer and a GitHub account. The guided setup creates
-  the access itself; an existing clone with your own SSH key or stored
-  credential works too.
-- Super Productivity from Flathub runs in a sandbox without the
-  computer's `git`: set the git command to `flatpak-spawn --host git` and
-  give the app `--talk-name=org.freedesktop.Flatpak` (Flatseal), or use
-  the .deb, .rpm or AppImage.
+  Windows; the Flathub build works). The plugin reads and writes the
+  folder with small scripts Super Productivity runs itself, which it
+  allows only in its desktop app and only after you agree once.
+- A GitHub account. No `git`, no SSH keys: the plugin talks to GitHub's
+  API with a token you create in the setup.
 
 ## Set up
 
@@ -38,9 +34,10 @@ walks through the rest with buttons ([details](docs/setup.md)):
    year, Contents: read and write); choose "Only select repositories" and
    the new repository.
 3. Paste the token, **Find Repositories**, pick `sp-sync`.
-4. **Set Up Folder** (default `~/sp-sync`): Git Sync copies the
-   repository there and keeps the token for it inside the folder's
-   `.git`, readable only by you.
+4. **Set Up** (folder, default `~/sp-sync`): Git Sync creates the folder
+   if needed, keeps the token on this computer and syncs once: an empty
+   folder takes the repository's files, an empty repository the
+   folder's.
 5. In Super Productivity: Settings → Sync → **Local file**, that folder,
    **manual sync only** on (it still syncs at start and before it quits;
    the plugin handles that). Encryption is optional: the files on GitHub
@@ -59,8 +56,9 @@ focus and shortly after you change something.
 npm run check
 ```
 
-Runs the tests (the Git cycle against real repositories, plugin.js with
-a fake PluginAPI) and writes `dist/tabularium-<version>.zip`. The
+Runs the tests (the cycle and plugin.js against a GitHub stand-in on a
+real bare repository and a stand-in for Super Productivity's plugin host,
+`scripts/host.mjs`) and writes `dist/tabularium-<version>.zip`. The
 end-to-end test with a real Super Productivity and Day Planner runs in
 Day Planner's repository (`tests/real_app/run_sync.sh`, scenario git).
 

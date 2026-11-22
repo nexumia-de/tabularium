@@ -1,161 +1,137 @@
-// plugin.js with a fake PluginAPI: the order prepare → Super Productivity
-// sync → finish, one cycle at a time, settings per device, one snack per
-// new error, and the settings page's messages.
+// plugin.js as Super Productivity runs it, through the host stand-in
+// (scripts/host.mjs) and the GitHub stand-in: the guided setup, the order
+// prepare → Super Productivity sync → finish, one cycle at a time,
+// settings and token per device, one snack per new error.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildPluginJs, buildNodeScript, buildSetupScript, buildZip } from '../scripts/build.mjs';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { buildPluginJs, buildZip } from '../scripts/build.mjs';
+import { createHost, request } from '../scripts/host.mjs';
+import { startGithub } from './github-fake.mjs';
 
-function load({ results = {}, secret = null } = {}) {
+const TOKEN = 'test-token';
+const REPO = 'me/sp-sync';
+
+async function load(t, { sync } = {}) {
+  const root = mkdtempSync(join(tmpdir(), 'git-sync-plugin-'));
+  const bare = join(root, 'origin.git');
+  execFileSync('git', ['init', '-q', '--bare', '-b', 'main', bare]);
+  const github = await startGithub({ bare, token: TOKEN, repository: REPO });
+  t.after(() => github.close());
   const calls = [];
-  const timers = [];
-  const api = {
-    secrets: new Map(secret ? [['settings', secret]] : []),
-    hooks: {},
-    snacks: [],
-    async getSecret(key) {
-      return this.secrets.get(key) ?? null;
+  const snacks = [];
+  const api = createHost({
+    extra: {
+      hooks: {},
+      // The plugin asks api.github.com; the stand-in answers instead.
+      request: (url, options) => request(url.replace('https://api.github.com', github.api), options),
+      registerMenuEntry(cfg) {
+        api.menu = cfg;
+      },
+      registerHook(name, fn) {
+        api.hooks[name] = fn;
+      },
+      onMessage(fn) {
+        api.message = fn;
+      },
+      onReady(fn) {
+        api.ready = fn;
+      },
+      onWindowFocusChange() {},
+      showIndexHtmlAsView() {},
+      showSnack(cfg) {
+        snacks.push(cfg);
+      },
+      async triggerSync() {
+        calls.push('sync');
+        if (sync) sync();
+      },
     },
-    async setSecret(key, value) {
-      this.secrets.set(key, value);
-    },
-    registerMenuEntry(cfg) {
-      this.menu = cfg;
-    },
-    registerHook(name, fn) {
-      this.hooks[name] = fn;
-    },
-    onMessage(fn) {
-      this.message = fn;
-    },
-    onWindowFocusChange(fn) {
-      this.focus = fn;
-    },
-    onReady(fn) {
-      this.ready = fn;
-    },
-    showIndexHtmlAsView() {},
-    showSnack(cfg) {
-      this.snacks.push(cfg);
-    },
-    async triggerSync() {
-      calls.push('sync');
-      await new Promise((r) => setImmediate(r));
-    },
-    async executeNodeScript(request) {
-      const { step } = request.args[0];
-      calls.push(step);
-      if (['home', 'repositories', 'clone'].includes(step)) {
-        assert.equal(request.script, buildSetupScript());
-        this.setupRequests = [...(this.setupRequests || []), request.args[0]];
-        const result = results[step] ?? { ok: true };
-        return { success: true, result };
-      }
-      assert.equal(request.script, buildNodeScript());
-      const result = results[step] ?? { ok: true };
-      return { success: true, result: typeof result === 'function' ? result() : result };
-    },
-  };
-  const fakeTimers = {
-    setTimeout: (fn, ms) => timers.push({ fn, ms }),
-    clearTimeout: () => {},
-    setInterval: (fn, ms) => timers.push({ fn, ms, every: true }),
-    clearInterval: () => {},
-  };
+  });
+  const noTimers = { set: () => 0, clear: () => {} };
   new Function('PluginAPI', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', buildPluginJs())(
     api,
-    fakeTimers.setTimeout,
-    fakeTimers.clearTimeout,
-    fakeTimers.setInterval,
-    fakeTimers.clearInterval,
+    noTimers.set,
+    noTimers.clear,
+    noTimers.set,
+    noTimers.clear,
   );
-  return { api, calls, timers };
+  await api.ready();
+  return { api, calls, snacks, root, bare, folder: join(root, 'sp-sync') };
 }
 
-const SETTINGS = JSON.stringify({ folder: '/home/u/sp', git: '/usr/bin/git', intervalMinutes: 5 });
+const remote = (env) => execFileSync('git', ['-C', env.bare, 'show', 'main:sync-data.json'], { encoding: 'utf8' });
 
-test('starts on onReady, registers the menu, hook and a timer', async () => {
-  const { api, timers } = load({ secret: SETTINGS });
-  assert.equal(api.menu, undefined);
-  await api.ready();
+test('starts on onReady and registers the menu entry and the hook', async (t) => {
+  const { api } = await load(t);
   assert.equal(api.menu.label, 'Git Sync');
   assert.equal(typeof api.hooks.dataChanged, 'function');
-  assert.ok(timers.some((t) => t.every && t.ms === 5 * 60 * 1000));
 });
 
-test('a cycle runs prepare, Super Productivity sync, finish in this order', async () => {
-  const { api, calls } = load({
-    secret: SETTINGS,
-    results: { prepare: { ok: true, took: 1, stale: false }, finish: { ok: true, pushed: true } },
-  });
-  await api.ready();
-  const state = await api.message({ type: 'sync' });
-  assert.deepEqual(calls, ['prepare', 'sync', 'finish']);
-  assert.equal(state.status.state, 'ok');
-  assert.equal(state.status.took, 1);
-  assert.equal(state.status.pushed, true);
+test('guided setup: repositories, then setup creates the folder and runs the first cycle', async (t) => {
+  let folder;
+  const env = await load(t, { sync: () => writeFileSync(join(folder, 'sync-data.json'), 'v1') });
+  folder = env.folder;
+  const home = await env.api.message({ type: 'home' });
+  assert.equal(home.ok, true);
+  const found = await env.api.message({ type: 'repositories', token: TOKEN });
+  assert.deepEqual(found.repositories.map((r) => r.fullName), [REPO]);
+  const done = await env.api.message({ type: 'setup', token: TOKEN, repository: REPO, folder });
+  assert.deepEqual(done.result, { ok: true, folder });
+  assert.ok(existsSync(folder));
+  assert.equal(remote(env), 'v1');
+  assert.equal(env.api.secrets().token, TOKEN);
+  assert.ok(!env.api.secrets().settings.includes(TOKEN));
+  assert.equal(done.status.state, 'ok');
+  assert.equal(done.status.pushed, true);
 });
 
-test('a failed prepare stops before Super Productivity syncs; one snack per new error', async () => {
-  const { api, calls } = load({ secret: SETTINGS, results: { prepare: { ok: false, code: 'diverged', detail: '' } } });
-  await api.ready();
-  await api.message({ type: 'sync' });
-  await api.message({ type: 'sync' });
-  assert.deepEqual(calls, ['prepare', 'prepare']);
-  assert.equal(api.snacks.length, 1);
-  assert.match(api.snacks[0].msg, /went apart/);
-});
-
-test('requests during a cycle run one more cycle, never two at once', async () => {
-  const { api, calls } = load({ secret: SETTINGS });
-  await api.ready();
-  const first = api.message({ type: 'sync' });
-  const second = api.message({ type: 'sync' });
+test('a cycle: prepare, Super Productivity sync, finish; requests during one run one more', async (t) => {
+  let folder;
+  let n = 0;
+  const env = await load(t, { sync: () => writeFileSync(join(folder, 'sync-data.json'), `v${++n}`) });
+  folder = env.folder;
+  await env.api.message({ type: 'setup', token: TOKEN, repository: REPO, folder });
+  const first = env.api.message({ type: 'sync' });
+  const second = env.api.message({ type: 'sync' });
   await Promise.all([first, second]);
-  await new Promise((r) => setTimeout(r, 20));
-  assert.deepEqual(calls, ['prepare', 'sync', 'finish', 'prepare', 'sync', 'finish']);
+  await new Promise((r) => setTimeout(r, 300));
+  assert.deepEqual(env.calls, ['sync', 'sync', 'sync']);
+  assert.equal(readFileSync(join(folder, 'sync-data.json'), 'utf8'), 'v3');
+  assert.equal(remote(env), 'v3');
 });
 
-test('without a folder nothing runs and the user is told', async () => {
-  const { api, calls } = load();
-  await api.ready();
-  const state = await api.message({ type: 'sync' });
-  assert.deepEqual(calls, []);
-  assert.equal(state.status.code, 'no-folder');
+test('not set up, a bad setup and a wrong token are named; one snack per new error', async (t) => {
+  const env = await load(t);
+  const state = await env.api.message({ type: 'sync' });
+  assert.equal(state.status.code, 'not-set-up');
+  await env.api.message({ type: 'sync' });
+  assert.equal(env.snacks.length, 1);
+  const setup = (repository, folder, token = TOKEN) => env.api.message({ type: 'setup', token, repository, folder });
+  assert.equal((await setup('x', env.folder)).result.code, 'bad-repository');
+  assert.equal((await setup(REPO, 'relative')).result.code, 'bad-folder');
+  assert.equal((await setup(REPO, env.folder, 'wrong')).result.code, 'token-refused');
+  assert.deepEqual(env.calls, []);
+  assert.equal((await env.api.message({ type: 'repositories', token: 'wrong' })).code, 'token-refused');
 });
 
-test('settings are kept per device and cleaned', async () => {
-  const { api } = load();
-  await api.ready();
-  const state = await api.message({
-    type: 'save',
-    settings: { folder: '  /home/u/sp ', git: '', intervalMinutes: '0' },
-  });
-  assert.deepEqual(state.settings, { folder: '/home/u/sp', git: '/usr/bin/git', intervalMinutes: 1 });
-  assert.deepEqual(JSON.parse(api.secrets.get('settings')), state.settings);
+test('settings are cleaned and kept per device', async (t) => {
+  const env = await load(t);
+  const state = await env.api.message({ type: 'save', settings: { intervalMinutes: '0' } });
+  assert.equal(state.settings.intervalMinutes, 1);
+  assert.deepEqual(JSON.parse(env.api.secrets().settings), state.settings);
 });
 
-test('the ZIP holds manifest, plugin and page', () => {
+test('the ZIP holds manifest, plugin and page; the plugin declares only what it uses', () => {
   const { name, data } = buildZip();
   assert.match(name, /^tabularium-\d+\.\d+\.\d+\.zip$/);
   const text = data.toString('latin1');
   for (const file of ['manifest.json', 'plugin.js', 'index.html']) assert.ok(text.includes(file));
-  assert.equal(data.readUInt32LE(data.length - 22), 0x06054b50);
-});
-
-test('the guided setup: repositories and clone go to the setup script; the folder is kept, the token not', async () => {
-  const { api, calls } = load({
-    results: {
-      repositories: { ok: true, repositories: [{ fullName: 'me/sp-sync', private: true, canWrite: true }] },
-      clone: { ok: true, folder: '/home/me/sp-sync', existing: false },
-    },
-  });
-  await api.ready();
-  const found = await api.message({ type: 'repositories', token: 'secret' });
-  assert.equal(found.repositories[0].fullName, 'me/sp-sync');
-  const setUp = await api.message({ type: 'setup', token: 'secret', repository: 'me/sp-sync', folder: '/home/me/sp-sync' });
-  assert.equal(setUp.result.ok, true);
-  assert.equal(setUp.settings.folder, '/home/me/sp-sync');
-  assert.deepEqual(calls, ['repositories', 'clone']);
-  assert.equal(api.setupRequests[1].git, '/usr/bin/git');
-  assert.ok(!api.secrets.get('settings').includes('secret'));
+  const manifest = JSON.parse(readFileSync(new URL('../src/manifest.json', import.meta.url), 'utf8'));
+  assert.deepEqual(manifest.allowedHosts, ['api.github.com']);
+  assert.ok(manifest.permissions.includes('http') && manifest.permissions.includes('nodeExecution'));
+  assert.ok(manifest.dataSharing.flatMap((d) => d.hosts || []).includes('api.github.com'));
 });

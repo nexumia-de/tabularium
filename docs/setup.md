@@ -1,8 +1,8 @@
 ---
 type: Reference
 title: Guided setup
-description: The click-through setup on Git Sync's page - GitHub's new-repository and new-token forms opened filled in by link, the repository picked from the list the token reaches, the clone with the token kept in .git for that repository only, and what stays manual.
-tags: [setup, github, token, git]
+description: The click-through setup on Git Sync's page - GitHub's new-repository and new-token forms opened filled in by link, the repository picked from the list the token reaches, the folder created and the first cycle run, and what stays manual.
+tags: [setup, github, token]
 sources:
   - id: newrepo
     title: GitHub Docs, Creating a new repository (URL query parameters)
@@ -10,9 +10,6 @@ sources:
   - id: pat
     title: GitHub Changelog 2025-08-26, Template URLs for fine-grained PATs; GitHub Docs, Managing your personal access tokens
     url: https://github.blog/changelog/2025-08-26-template-urls-for-fine-grained-pats-and-updated-permissions-ui/
-  - id: store
-    title: Git, git-credential-store
-    url: https://git-scm.com/docs/git-credential-store
 generated: { by: claude-code/2.1.330, at: 2026-11-22 }
 ---
 
@@ -28,20 +25,16 @@ Asked for by the owner (2026-11-22), after the setup screen of domus.
    parameter per permission[^pat]. The repository selection has no
    parameter; the page tells the person to choose "Only select
    repositories" and the new one.
-3. **Find Repositories**: the `repositories` step of `src/git-setup.cjs`
-   calls `GET https://api.github.com/user/repos?per_page=100&affiliation=owner,collaborator&sort=pushed`
-   (up to three pages, a next page only on the same host) and the page
-   offers those the token may write to, `…/sp-sync` first; a public one
-   is marked.
-4. **Set Up Folder** (`clone` step): the folder must be new or empty, or
-   already a clone of exactly that repository (then only the token is
-   replaced). The token goes to `git clone` through a temporary file
-   readable only by the user (credential helper `store --file`[^store]),
-   never on a command line, and is then kept in
-   `.git/tabularium-credentials` (mode 600) with the repository's
-   `credential.helper` set to an empty value and then that file, so the
-   user's other helpers do not answer for it. An empty repository is put
-   on branch `main`. The folder becomes the plugin's setting.
+3. **Find Repositories**: `GET https://api.github.com/user/repos?per_page=100&affiliation=owner,collaborator&sort=pushed`
+   through `PluginAPI.request` (one page: the plugin HTTP layer does not
+   show the Link header); the page offers those the token may write to,
+   `…/sp-sync` first, and marks a public one.
+4. **Set Up** (folder, default `~/sp-sync` from the `home` folder
+   script): the folder is created if missing, token, repository and
+   folder are kept per device (secret storage; a new repository or
+   folder starts a new state) and the first cycle runs: an empty
+   repository takes the folder's files, an empty folder takes the
+   repository's ([protocol](protocol.md#the-cycle-srccyclejs)).
 5. Super Productivity's own sync settings (Local file, the folder,
    manual sync only) stay manual: a plugin cannot read or set them
    ([facts](super-productivity-facts.md)).
@@ -54,21 +47,17 @@ Super Productivity's window hands every new window to the browser
 
 - One per device: this one for the desktop, another for Day Planner.
   Each can be revoked alone.
-- It reaches Super Productivity's Node process as an argument of
-  `executeNodeScript`, which puts its arguments on that process's
-  command line (`electron/plugin-node-executor.ts`); other users of the
-  computer could see it there for the seconds the step runs. The cycle
-  itself never handles the token.
-- An expired token makes fetch fail (`fetch-failed`); the setup run
-  again on the same folder stores a new one.
+- Kept in Super Productivity's secret storage for the plugin, per
+  device, not synced and not in backups; sent only to api.github.com
+  (`allowedHosts`).
+- An expired token gives `token-refused`; Set Up again with a new one
+  keeps folder, repository and state.
 
 # Checked
 
-`test/git-setup.test.mjs`: the repository list against a local
-stand-in (pages, the next link on another host not followed, a refused
-token), the clone of an empty bare repository (main, the credential file
-and its mode, the helpers, no token in `.git/config`, a cycle afterwards),
-a second setup on the same folder, a full folder refused, bad input, the
-token never in a result. Not checked against github.com: the forms'
-prefilling, `/user/repos` for a fine-grained token, HTTPS auth with the
-stored token.
+`test/plugin.test.mjs` and `test/cycle.test.mjs` against
+`test/github-fake.mjs` (the API on a real bare repository) and
+`scripts/host.mjs` (Super Productivity's folder scripts and requests):
+repository list, setup with folder creation and first cycle, wrong
+token, bad input. Not checked against github.com: the forms'
+prefilling and `/user/repos` for a fine-grained token.
