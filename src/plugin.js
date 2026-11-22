@@ -1,36 +1,39 @@
 // Git Sync for Super Productivity (docs/protocol.md). Drives the sync
-// cycle: Git `prepare` (fetch, take Day Planner's hand-over), Super
-// Productivity's own sync into the local folder (triggerSync), Git
-// `finish` (commit, push). Runs on a timer, when the window gets focus and
-// after local changes. Settings are per device (PluginAPI secret storage);
-// the settings page (index.html) talks to this file through onMessage and
-// also runs the guided setup (git-setup.cjs) through it.
-// Logs and messages name codes and counts, never task data.
+// cycle: prepare (take the repository's changes and Day Planner's
+// hand-over into the folder), Super Productivity's own sync into the local
+// folder (triggerSync), finish (commit what it wrote and move main). Runs
+// on a timer, when the window gets focus and after local changes. The
+// folder is read and written by small scripts (folder.js), the repository
+// through GitHub's API (github.js). Settings, token and state are per
+// device (PluginAPI secret storage); the settings page (index.html) talks
+// to this file through onMessage. Logs and messages name codes and counts,
+// never task data. The build puts folder.js, github.js, blob-sha.js and
+// cycle.js in front of this file.
 
-const NODE_SCRIPT = '__TABULARIUM_NODE_SCRIPT__';
-const SETUP_SCRIPT = '__TABULARIUM_SETUP_SCRIPT__';
-const SETTINGS_KEY = 'settings';
-const DEFAULTS = { folder: '', git: '/usr/bin/git', intervalMinutes: 5 };
+const KEYS = { settings: 'settings', token: 'token', state: 'state' };
+const DEFAULTS = { folder: '', repository: '', intervalMinutes: 5 };
 const MIN_GAP_MS = 60 * 1000; // focus and changes start a cycle at most once a minute
 const CHANGE_DELAY_MS = 20 * 1000;
 const START_DELAY_MS = 30 * 1000; // after Super Productivity's own start-up sync
-const NODE_TIMEOUT_MS = 120 * 1000;
 
 const MESSAGES = {
-  'no-folder': 'Git Sync: choose the sync folder in its settings.',
-  'no-git': 'Git Sync: the git command was not found.',
-  'not-a-repository': 'Git Sync: the sync folder is not the top folder of a Git repository.',
-  'not-on-main': 'Git Sync: the repository in the sync folder is not on the branch main.',
-  'fetch-failed': 'Git Sync: could not fetch from the repository (offline or no access).',
-  diverged: 'Git Sync: main in the repository and in the sync folder went apart. Nothing was pushed.',
-  'push-rejected': 'Git Sync: the push was rejected; the next sync tries again.',
-  'push-failed': 'Git Sync: could not push to the repository.',
-  'git-failed': 'Git Sync: a git command failed.',
-  node: 'Git Sync: Super Productivity did not run the Git step (permission or desktop app needed).',
+  'not-set-up': 'Git Sync: set it up on its page first.',
+  'no-folder': 'Git Sync: the sync folder does not exist.',
+  'token-refused': 'Git Sync: GitHub refused the token; set up again with a new one.',
+  forbidden: 'Git Sync: the token may not write to the repository (Contents: read and write needed).',
+  'not-found': 'Git Sync: the repository was not found with this token.',
+  unreachable: 'Git Sync: GitHub is not reachable.',
+  server: 'Git Sync: GitHub answered with an error.',
+  'both-have-data': 'Git Sync: the folder and the repository both hold different data; empty one of them.',
+  diverged: 'Git Sync: main in the repository moved on without this computer. Nothing was sent.',
+  'push-rejected': 'Git Sync: the repository changed meanwhile; the next sync tries again.',
+  node: 'Git Sync: Super Productivity did not run the folder step (allow it for this plugin).',
   error: 'Git Sync: the sync failed.',
 };
 
 let settings = { ...DEFAULTS };
+let token = '';
+let state = null;
 let running = null;
 let again = false;
 let lastStart = 0;
@@ -39,12 +42,22 @@ let intervalTimer = null;
 let lastShownError = null;
 let status = { state: 'idle', at: null, code: null, detail: '', took: 0, stale: false, pushed: false };
 
-async function loadSettings() {
+async function loadJson(key, fallback) {
   try {
-    const stored = await PluginAPI.getSecret(SETTINGS_KEY);
-    settings = { ...DEFAULTS, ...(stored ? JSON.parse(stored) : {}) };
+    const stored = await PluginAPI.getSecret(key);
+    return stored ? JSON.parse(stored) : fallback;
   } catch (e) {
-    settings = { ...DEFAULTS };
+    return fallback;
+  }
+}
+
+async function loadAll() {
+  settings = { ...DEFAULTS, ...(await loadJson(KEYS.settings, {})) };
+  state = await loadJson(KEYS.state, null);
+  try {
+    token = (await PluginAPI.getSecret(KEYS.token)) || '';
+  } catch (e) {
+    token = '';
   }
 }
 
@@ -52,50 +65,32 @@ function cleanSettings(input) {
   const minutes = Math.round(Number(input && input.intervalMinutes));
   return {
     folder: String((input && input.folder) || '').trim(),
-    git: String((input && input.git) || DEFAULTS.git).trim() || DEFAULTS.git,
+    repository: String((input && input.repository) || '').trim(),
     intervalMinutes: Number.isFinite(minutes) ? Math.min(Math.max(minutes, 1), 120) : DEFAULTS.intervalMinutes,
   };
 }
 
 async function saveSettings(input) {
-  settings = cleanSettings(input);
-  await PluginAPI.setSecret(SETTINGS_KEY, JSON.stringify(settings));
+  settings = cleanSettings({ ...settings, ...input });
+  await PluginAPI.setSecret(KEYS.settings, JSON.stringify(settings));
   schedule();
 }
 
-async function nodeStep(step) {
-  if (typeof PluginAPI.executeNodeScript !== 'function') return { ok: false, code: 'node', detail: '' };
-  const result = await PluginAPI.executeNodeScript({
-    script: NODE_SCRIPT,
-    args: [{ step, folder: settings.folder, git: settings.git }],
-    timeout: NODE_TIMEOUT_MS,
-  });
-  if (!result || !result.success) return { ok: false, code: 'node', detail: (result && result.error) || '' };
-  return result.result || { ok: false, code: 'error', detail: '' };
-}
-
-// The guided setup (src/git-setup.cjs, docs/setup.md). The token goes to
-// the Node step only and is kept in the repository's .git, not here.
-async function setupStep(request) {
-  if (typeof PluginAPI.executeNodeScript !== 'function') return { ok: false, code: 'node', detail: '' };
-  const result = await PluginAPI.executeNodeScript({
-    script: SETUP_SCRIPT,
-    args: [{ ...request, git: settings.git }],
-    timeout: NODE_TIMEOUT_MS,
-  });
-  if (!result || !result.success) return { ok: false, code: 'node', detail: (result && result.error) || '' };
-  return result.result || { ok: false, code: 'error', detail: '' };
-}
-
-async function setUp(message) {
-  const cloned = await setupStep({
-    step: 'clone',
-    token: message.token,
-    repository: message.repository,
-    folder: message.folder,
-  });
-  if (cloned.ok) await saveSettings({ ...settings, folder: cloned.folder });
-  return cloned;
+function context() {
+  let saving = Promise.resolve();
+  const ctx = {
+    folder: settings.folder,
+    repository: settings.repository,
+    github: githubClient(token, settings.repository),
+    state,
+    saveState(next) {
+      state = next;
+      ctx.state = next;
+      saving = PluginAPI.setSecret(KEYS.state, JSON.stringify(next));
+    },
+    saved: () => saving,
+  };
+  return ctx;
 }
 
 function report(next) {
@@ -111,29 +106,28 @@ function report(next) {
 }
 
 async function runCycle() {
-  if (!settings.folder) {
-    report({ state: 'error', code: 'no-folder', detail: '' });
+  if (!settings.folder || !settings.repository || !token) {
+    report({ state: 'error', code: 'not-set-up', detail: '' });
     return status;
   }
-  const prepared = await nodeStep('prepare');
-  if (!prepared.ok) {
-    report({ state: 'error', code: prepared.code, detail: prepared.detail });
-    return status;
+  try {
+    const ctx = context();
+    const prepared = await cyclePrepare(ctx);
+    await ctx.saved();
+    await PluginAPI.triggerSync();
+    const finished = await cycleFinish(ctx);
+    await ctx.saved();
+    report({
+      state: 'ok',
+      code: null,
+      detail: '',
+      took: prepared.took,
+      stale: prepared.stale,
+      pushed: finished.pushed || prepared.committedOutside || prepared.took > 0,
+    });
+  } catch (error) {
+    report({ state: 'error', code: (error && error.code) || 'error', detail: (error && error.detail) || '' });
   }
-  await PluginAPI.triggerSync();
-  const finished = await nodeStep('finish');
-  if (!finished.ok) {
-    report({ state: 'error', code: finished.code, detail: finished.detail });
-    return status;
-  }
-  report({
-    state: 'ok',
-    code: null,
-    detail: '',
-    took: prepared.took || 0,
-    stale: !!prepared.stale,
-    pushed: !!finished.pushed,
-  });
   return status;
 }
 
@@ -144,18 +138,13 @@ function cycle() {
     return running;
   }
   lastStart = Date.now();
-  running = runCycle()
-    .catch((e) => {
-      report({ state: 'error', code: 'error', detail: e && e.message ? e.message : String(e) });
-      return status;
-    })
-    .finally(() => {
-      running = null;
-      if (again) {
-        again = false;
-        cycle();
-      }
-    });
+  running = runCycle().finally(() => {
+    running = null;
+    if (again) {
+      again = false;
+      cycle();
+    }
+  });
   return running;
 }
 
@@ -178,22 +167,63 @@ function onDataChanged() {
   }, CHANGE_DELAY_MS);
 }
 
+// The guided setup (docs/setup.md): the token is kept per device, the
+// folder is created, and the first cycle shows whether it all works.
+async function setUp(message) {
+  const repository = String(message.repository || '').trim();
+  const folder = String(message.folder || '').trim();
+  const newToken = String(message.token || '').trim() || token;
+  if (!newToken) return { ok: false, code: 'no-token' };
+  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) return { ok: false, code: 'bad-repository' };
+  if (!folder.startsWith('/') && !/^[A-Za-z]:[\\/]/.test(folder)) return { ok: false, code: 'bad-folder' };
+  try {
+    await folderRun('write', [folder, {}]);
+  } catch (error) {
+    return { ok: false, code: error.code || 'node', detail: error.message };
+  }
+  if (repository !== settings.repository || folder !== settings.folder) {
+    state = null;
+    await PluginAPI.setSecret(KEYS.state, JSON.stringify(null));
+  }
+  token = newToken;
+  await PluginAPI.setSecret(KEYS.token, token);
+  await saveSettings({ repository, folder });
+  const result = await cycle();
+  return result.state === 'ok' ? { ok: true, folder } : { ok: false, code: result.code, detail: result.detail };
+}
+
 async function onMessage(message) {
   const type = message && message.type;
-  if (type === 'get') return { settings, status, running: !!running };
+  const view = () => ({ settings, status, running: !!running, hasToken: !!token });
+  if (type === 'get') return view();
   if (type === 'save') {
     await saveSettings(message.settings);
-    return { settings, status, running: !!running };
+    return view();
   }
-  if (type === 'sync') return { settings, status: await cycle(), running: false };
-  if (type === 'home') return setupStep({ step: 'home' });
-  if (type === 'repositories') return setupStep({ step: 'repositories', token: message.token });
-  if (type === 'setup') return { result: await setUp(message), settings };
+  if (type === 'sync') {
+    await cycle();
+    return view();
+  }
+  if (type === 'home') {
+    try {
+      return { ok: true, home: await folderHome() };
+    } catch (error) {
+      return { ok: false, code: error.code || 'node' };
+    }
+  }
+  if (type === 'repositories') {
+    try {
+      return { ok: true, repositories: await githubRepositories(String(message.token || '').trim() || token) };
+    } catch (error) {
+      return { ok: false, code: error.code || 'error' };
+    }
+  }
+  if (type === 'setup') return { result: await setUp(message), ...view() };
   return { error: 'unknown message' };
 }
 
 async function start() {
-  await loadSettings();
+  await loadAll();
   PluginAPI.registerMenuEntry({ label: 'Git Sync', icon: 'cloud_sync', onClick: () => PluginAPI.showIndexHtmlAsView() });
   if (PluginAPI.onMessage) PluginAPI.onMessage(onMessage);
   PluginAPI.registerHook('dataChanged', onDataChanged);

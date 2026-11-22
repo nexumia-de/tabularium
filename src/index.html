@@ -106,8 +106,8 @@
   <body>
     <h1>Git Sync</h1>
     <p>
-      Super Productivity syncs into a local folder; Git Sync keeps that folder in a Git repository
-      and takes the changes Day Planner sends.
+      Super Productivity syncs into a local folder; Git Sync keeps that folder in a private GitHub
+      repository and takes the changes Day Planner sends.
     </p>
     <details id="setup">
       <summary>Set Up Step by Step</summary>
@@ -133,23 +133,22 @@
         <li>
           <label for="target">Folder on this computer</label>
           <input id="target" autocomplete="off" />
-          <p class="hint">A new, empty folder; Git Sync copies the repository there.</p>
-          <div class="buttons"><button type="button" class="primary" id="create">Set Up Folder</button></div>
+          <p class="hint">
+            Created if missing. An empty folder takes what the repository holds; an empty repository
+            takes what the folder holds.
+          </p>
+          <div class="buttons"><button type="button" class="primary" id="create">Set Up</button></div>
           <div class="result" id="setup-result" role="status" aria-live="polite"></div>
         </li>
         <li>
           In Super Productivity: Settings → Sync → <b>Local file</b>, choose that folder and switch
-          on <b>manual sync only</b>. Then Sync Now below.
+          on <b>manual sync only</b>. Git Sync then syncs every few minutes; Sync Now below starts
+          one at once.
         </li>
       </ol>
     </details>
     <form id="form">
-      <label for="folder">Sync folder</label>
-      <input id="folder" autocomplete="off" placeholder="/home/you/sp-sync" />
-      <p class="hint">The top folder of a clone of your private repository, on the branch main.</p>
-      <label for="git">Git command</label>
-      <input id="git" autocomplete="off" />
-      <p class="hint">Full path; for Super Productivity as Flatpak: flatpak-spawn --host git</p>
+      <p id="where" class="hint"></p>
       <label for="interval">Sync every (minutes)</label>
       <input id="interval" type="number" min="1" max="120" inputmode="numeric" />
       <div class="buttons">
@@ -190,12 +189,13 @@
         return parts.join(' ');
       }
       function show(state) {
-        $('folder').value = state.settings.folder;
-        $('git').value = state.settings.git;
+        $('where').textContent = state.settings.folder
+          ? `Folder ${state.settings.folder} ↔ ${state.settings.repository}`
+          : 'Not set up yet.';
         $('interval').value = state.settings.intervalMinutes;
         $('status').textContent = describe(state);
       }
-      const values = () => ({ folder: $('folder').value, git: $('git').value, intervalMinutes: $('interval').value });
+      const values = () => ({ intervalMinutes: $('interval').value });
       $('form').addEventListener('submit', async (event) => {
         event.preventDefault();
         show(await send({ type: 'save', settings: values() }));
@@ -211,13 +211,11 @@
         unreachable: 'GitHub is not reachable.',
         server: 'GitHub answered with an error.',
         'bad-repository': 'Choose a repository first.',
-        'no-folder': 'Enter a full folder path.',
-        'folder-not-empty': 'The folder is not empty and not a copy of this repository.',
-        'clone-refused': 'GitHub refused access: does the token include this repository?',
-        'clone-failed': 'Copying the repository failed.',
-        'no-git': 'The git command was not found.',
-        'not-on-main': 'The repository is not on the branch main.',
-        node: 'Super Productivity did not run the step (permission or desktop app needed).',
+        'bad-folder': 'Enter a full folder path.',
+        forbidden: 'The token may not write to this repository (Contents: read and write).',
+        'not-found': 'GitHub does not show this repository to the token: was it selected?',
+        'both-have-data': 'The folder and the repository both hold different data: use an empty folder.',
+        node: 'Super Productivity did not run the folder step: allow it for this plugin.',
       };
       const problem = (r) => (SETUP_MESSAGES[r.code] || `Failed (${r.code}).`) + (r.detail ? `\n${r.detail}` : '');
       $('find').addEventListener('click', async () => {
@@ -246,7 +244,7 @@
         });
         if (!r.result.ok) return ($('setup-result').textContent = problem(r.result));
         $('token').value = '';
-        $('folder').value = r.settings.folder;
+        show(r);
         $('setup-result').textContent = `Ready: ${r.result.folder}. Now set this folder in Super Productivity's sync settings (step 5).`;
       });
       send({ type: 'get' })

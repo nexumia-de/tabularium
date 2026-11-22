@@ -29,14 +29,26 @@ repository.
   resolves when the sync is skipped or ends in a handled error.
 - `executeNodeScript({script, args, timeout})`: Electron only, needs the
   `nodeExecution` permission and the user's consent, stored per plugin
-  (`electron/plugin-node-consent-store.ts`). A script that mentions
-  `child_process`, `spawn`, `exec` or `require` of anything but
-  `fs`/`path`/`os` runs in a new process: `process.execPath -e` with
-  `ELECTRON_RUN_AS_NODE=1` and only `NODE_ENV` set, wrapped as
-  `const args = …; (async function(){ <script> })()`, the result as JSON
-  on stdout; timeout default 30 s, at most 300 s
-  (`electron/plugin-node-executor.ts`, `executeViaSpawn`). No `PATH`, no
-  `HOME`, no SSH agent: `src/git-cycle.cjs` sets them itself.
+  (`electron/plugin-node-consent-store.ts`). A script that passes
+  `canExecuteDirectly` (no `child_process`, `exec`, `spawn`, `eval`,
+  `Function`, `process.exit`, and `require` only of `fs`, `path`, `os`)
+  runs in Super Productivity's main process in a `vm` context with only
+  those three modules, `console`, `JSON` and `args`, wrapped as an async
+  function, limited to 5 s; the script at most 100 KB
+  (`executeDirectly`, `validateScriptRequest`). Any other script runs in
+  a new process, `process.execPath -e` (`executeViaSpawn`).
+- **In the Flathub build that new process cannot start**: the owner got
+  "Failed to execute script: spawn
+  /app/superproductivity/superproductivity-bin ENOENT" (2026-11-22), and
+  the sandbox has no `git` anyway. So Git Sync uses only scripts that run
+  directly ([decision](decisions/api-not-git.md)).
+- `request(url, {method, body, headers, timeout})`: needs the `http`
+  permission and the host in `allowedHosts`; `fetch` without following
+  redirects, an object body sent as JSON, the answer parsed as JSON; a
+  non-2xx answer rejects with an error carrying `.status`; no response
+  headers (`src/app/plugins/plugin-bridge.service.ts`, `request`;
+  `src/app/plugins/issue-provider/plugin-http.service.ts`). `PATCH` and
+  `PUT` are allowed methods.
 - Per-device storage: `setSecret`/`getSecret` (not synced, not in
   backups); not available inside the iframe
   (`src/app/plugins/util/plugin-iframe.util.ts`,

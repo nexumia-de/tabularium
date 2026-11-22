@@ -1,9 +1,9 @@
-// Builds the plugin: plugin.js gets the Git cycle (src/git-cycle.cjs) and
-// the guided setup (src/git-setup.cjs) as the scripts it hands to
-// PluginAPI.executeNodeScript, and
-// `node scripts/build.mjs` writes dist/tabularium-<version>.zip with
-// manifest.json, plugin.js and index.html. No dependencies: the ZIP is
-// written here (stored entries, CRC-32 from node:zlib).
+// Builds the plugin: plugin.js is folder.js, github.js, blob-sha.js and
+// cycle.js followed by src/plugin.js, one script for Super Productivity's
+// plugin runner. `node scripts/build.mjs` writes
+// dist/tabularium-<version>.zip with manifest.json, plugin.js and
+// index.html. No dependencies: the ZIP is written here (stored entries,
+// CRC-32 from node:zlib).
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { crc32 } from 'node:zlib';
 import { dirname, join } from 'node:path';
@@ -12,24 +12,22 @@ import { fileURLToPath } from 'node:url';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (name) => readFileSync(join(root, name), 'utf8');
 
-export function buildNodeScript() {
-  return `${read('src/git-cycle.cjs')}\nreturn await tabulariumRun(args[0]);\n`;
-}
+export const ENGINE_FILES = ['src/folder.js', 'src/github.js', 'src/blob-sha.js', 'src/cycle.js'];
 
-export function buildSetupScript() {
-  return `${read('src/git-setup.cjs')}\nreturn await setupRun(args[0]);\n`;
+export function engineSource() {
+  return ENGINE_FILES.map(read).join('\n');
 }
 
 export function buildPluginJs() {
-  let source = read('src/plugin.js');
-  for (const [marker, script] of [
-    ["'__TABULARIUM_NODE_SCRIPT__'", buildNodeScript()],
-    ["'__TABULARIUM_SETUP_SCRIPT__'", buildSetupScript()],
-  ]) {
-    if (!source.includes(marker)) throw new Error(`plugin.js has no marker ${marker}`);
-    source = source.replace(marker, () => JSON.stringify(script));
-  }
-  return source;
+  return `${engineSource()}\n${read('src/plugin.js')}`;
+}
+
+// The engine's functions with `api` as PluginAPI, for tests and for the
+// end-to-end test in Day Planner's repository (scripts/host.mjs).
+export function loadEngine(api) {
+  const names = ['cyclePrepare', 'cycleFinish', 'folderList', 'folderWrite', 'folderHome', 'folderRun',
+    'githubClient', 'githubRepositories', 'blobSha', 'FOLDER_SCRIPTS'];
+  return new Function('PluginAPI', `${engineSource()}\nreturn { ${names.join(', ')} };`)(api);
 }
 
 function zip(files) {

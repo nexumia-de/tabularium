@@ -11,6 +11,6 @@
   "scripts": {
     "test": "node --test test/*.test.mjs",
     "build": "node scripts/build.mjs",
-    "check": "node --check src/plugin.js && node --check src/git-cycle.cjs && npm test && npm run build"
+    "check": "node --check src/plugin.js && node --check src/cycle.js && node --check src/github.js && node --check src/folder.js && node --check src/blob-sha.js && npm test && npm run build"
   }
 }
