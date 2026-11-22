@@ -42,6 +42,14 @@ repository.
   /app/superproductivity/superproductivity-bin ENOENT" (2026-11-22), and
   the sandbox has no `git` anyway. So Git Sync uses only scripts that run
   directly ([decision](decisions/api-not-git.md)).
+- **The Flathub build may only read the home folder**
+  (`--filesystem=home:ro`; writable only `xdg-download`), per its
+  manifest's `finish-args` in flathub/com.super_productivity.SuperProductivity
+  (master, 2026-11-22). Creating `~/sp-sync` there failed with "ENOENT:
+  no such file or directory, mkdir" (the owner, 2026-11-22); one
+  `flatpak override --user --filesystem=<folder> <app id>` and a restart
+  make that folder writable. Node's recursive `mkdirSync` never returns
+  for a path below `/proc` (seen in tests, Node 22).
 - `request(url, {method, body, headers, timeout})`: needs the `http`
   permission and the host in `allowedHosts`; `fetch` without following
   redirects, an object body sent as JSON, the answer parsed as JSON; a

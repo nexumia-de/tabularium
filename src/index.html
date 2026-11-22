@@ -216,8 +216,18 @@
         'not-found': 'GitHub does not show this repository to the token: was it selected?',
         'both-have-data': 'The folder and the repository both hold different data: use an empty folder.',
         node: 'Super Productivity did not run the folder step: allow it for this plugin.',
+        'folder-not-writable': 'Super Productivity may not write in this folder.',
       };
-      const problem = (r) => (SETUP_MESSAGES[r.code] || `Failed (${r.code}).`) + (r.detail ? `\n${r.detail}` : '');
+      let place = { flatpak: false, appId: null };
+      // From Flathub, Super Productivity may not write in the home folder;
+      // one command, run once in a terminal, lets it write in this folder.
+      const flatpakHint = () =>
+        place.flatpak
+          ? `\nSuper Productivity runs as Flatpak and may only read your home folder. Run once in a terminal, then restart Super Productivity and Set Up again:\n\nflatpak override --user --filesystem=${$('target').value.trim()}:create ${place.appId}`
+          : '';
+      const problem = (r) =>
+        (SETUP_MESSAGES[r.code] || `Failed (${r.code}).`) +
+        (r.code === 'folder-not-writable' ? flatpakHint() : r.detail ? `\n${r.detail}` : '');
       $('find').addEventListener('click', async () => {
         $('find-result').textContent = 'Asking GitHub…';
         const r = await send({ type: 'repositories', token: $('token').value });
@@ -254,7 +264,8 @@
         })
         .catch((e) => ($('status').textContent = e.message));
       send({ type: 'home' }).then((r) => {
-        if (r && r.ok && !$('target').value) $('target').value = `${r.home}/sp-sync`;
+        if (r && r.ok) place = r;
+        if (r && r.ok && !$('target').value) $('target').value = r.suggested;
       });
     </script>
   </body>

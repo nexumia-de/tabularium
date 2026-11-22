@@ -5,8 +5,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildPluginJs, buildZip } from '../scripts/build.mjs';
 import { createHost, request } from '../scripts/host.mjs';
@@ -77,6 +77,8 @@ test('guided setup: repositories, then setup creates the folder and runs the fir
   folder = env.folder;
   const home = await env.api.message({ type: 'home' });
   assert.equal(home.ok, true);
+  assert.equal(home.flatpak, false);
+  assert.equal(home.suggested, join(home.home, 'sp-sync'));
   const found = await env.api.message({ type: 'repositories', token: TOKEN });
   assert.deepEqual(found.repositories.map((r) => r.fullName), [REPO]);
   const done = await env.api.message({ type: 'setup', token: TOKEN, repository: REPO, folder });
@@ -113,7 +115,19 @@ test('not set up, a bad setup and a wrong token are named; one snack per new err
   const setup = (repository, folder, token = TOKEN) => env.api.message({ type: 'setup', token, repository, folder });
   assert.equal((await setup('x', env.folder)).result.code, 'bad-repository');
   assert.equal((await setup(REPO, 'relative')).result.code, 'bad-folder');
+  // ~/ is the home folder, as people write it.
+  const name = `git-sync-test-${process.pid}`;
+  const tilde = await setup(REPO, `~/${name}`, 'wrong');
+  assert.equal(tilde.result.code, 'token-refused');
+  assert.equal(tilde.settings.folder, join(homedir(), name));
+  rmSync(join(homedir(), name), { recursive: true, force: true });
   assert.equal((await setup(REPO, env.folder, 'wrong')).result.code, 'token-refused');
+  // A folder Super Productivity may not create (Flathub: home is read-only).
+  // (A path below a file stands in: root may write everywhere else here.)
+  writeFileSync(join(env.root, 'a-file'), '');
+  const notWritable = (await setup(REPO, join(env.root, 'a-file', 'sp-sync'))).result;
+  assert.equal(notWritable.code, 'folder-not-writable');
+  assert.match(notWritable.detail, /ENOTDIR/);
   assert.deepEqual(env.calls, []);
   assert.equal((await env.api.message({ type: 'repositories', token: 'wrong' })).code, 'token-refused');
 });

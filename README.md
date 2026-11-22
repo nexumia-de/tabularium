@@ -14,7 +14,8 @@ Super Productivity wrote, through GitHub's API. How it works: [docs/protocol.md]
 ## Requirements
 
 - Super Productivity **20.0.0 or newer as a desktop app** (Linux, macOS,
-  Windows; the Flathub build works). The plugin reads and writes the
+  Windows). The Flathub build may only read your home folder; the setup
+  page shows the one command that lets it write in the sync folder. The plugin reads and writes the
   folder with small scripts Super Productivity runs itself, which it
   allows only in its desktop app and only after you agree once.
 - A GitHub account. No `git`, no SSH keys: the plugin talks to GitHub's
