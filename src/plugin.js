@@ -173,10 +173,16 @@ function onDataChanged() {
 // folder is created, and the first cycle shows whether it all works.
 async function setUp(message) {
   const repository = String(message.repository || '').trim();
-  const folder = String(message.folder || '').trim();
+  let folder = String(message.folder || '').trim();
   const newToken = String(message.token || '').trim() || token;
   if (!newToken) return { ok: false, code: 'no-token' };
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) return { ok: false, code: 'bad-repository' };
+  try {
+    // ~/sp-sync as people write it
+    if (folder === '~' || folder.startsWith('~/')) folder = (await folderHome()).home + folder.slice(1);
+  } catch (error) {
+    return { ok: false, code: error.code || 'node', detail: error.detail || error.message };
+  }
   if (!folder.startsWith('/') && !/^[A-Za-z]:[\\/]/.test(folder)) return { ok: false, code: 'bad-folder' };
   try {
     await folderRun('write', [folder, {}]);

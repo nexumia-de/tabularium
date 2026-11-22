@@ -30,7 +30,7 @@ Asked for by the owner (2026-11-22), after the setup screen of domus.
    show the Link header); the page offers those the token may write to,
    `…/sp-sync` first, and marks a public one.
 4. **Set Up** (folder, default `~/sp-sync` from the `home` folder
-   script): the folder is created if missing, token, repository and
+   script; `~/` is turned into the home folder): the folder is created if missing, token, repository and
    folder are kept per device (secret storage; a new repository or
    folder starts a new state) and the first cycle runs: an empty
    repository takes the folder's files, an empty folder takes the
@@ -38,6 +38,24 @@ Asked for by the owner (2026-11-22), after the setup screen of domus.
 5. Super Productivity's own sync settings (Local file, the folder,
    manual sync only) stay manual: a plugin cannot read or set them
    ([facts](super-productivity-facts.md)).
+
+# Super Productivity from Flathub
+
+Its sandbox may only read the home folder
+([facts](super-productivity-facts.md)). A folder script that fails with
+a file system error (`ENOENT`, `EROFS`, `EACCES`, `EPERM`, `ENOTDIR`)
+is reported as `folder-not-writable`, not as a missing permission to
+run scripts. The `home` script tells from `/.flatpak-info` whether Super
+Productivity runs as Flatpak and its app id; the page then shows the
+one command that makes the chosen folder writable:
+
+```sh
+flatpak override --user --filesystem=/home/you/sp-sync:create com.super_productivity.SuperProductivity
+```
+
+and asks for a restart of Super Productivity (also from the tray).
+`~/Downloads`, writable without the command, is not suggested: the
+owner does not want the sync folder there.
 
 Links open in the system browser: the page's iframe may open popups and
 Super Productivity's window hands every new window to the browser
