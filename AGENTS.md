@@ -33,5 +33,5 @@ a real Super Productivity runs in pensum's `real-app` job
 ## Releases
 
 A tag `v<version>` matching `src/manifest.json` runs the release
-workflow (plugin ZIP on a GitHub release). The owner tags releases;
-agents do not.
+workflow (plugin ZIP on the tag's GitHub release, made by hand or by
+the workflow). The owner tags releases; agents do not.
