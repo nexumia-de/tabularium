@@ -1,14 +1,15 @@
 // plugin.js as Super Productivity runs it, through the host stand-in
 // (scripts/host.mjs) and the GitHub stand-in: the guided setup, the order
 // prepare → Super Productivity sync → finish, one cycle at a time,
-// settings and token per device, one snack per new error.
+// settings and token per device, one snack per new error, problem reports
+// with their own token.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildPluginJs, buildZip } from '../scripts/build.mjs';
+import { buildIndexHtml, buildPluginJs, buildZip } from '../scripts/build.mjs';
 import { createHost, request } from '../scripts/host.mjs';
 import { startGithub } from './github-fake.mjs';
 
@@ -60,7 +61,7 @@ async function load(t, { sync } = {}) {
     noTimers.clear,
   );
   await api.ready();
-  return { api, calls, snacks, root, bare, folder: join(root, 'sp-sync') };
+  return { api, calls, snacks, github, root, bare, folder: join(root, 'sp-sync') };
 }
 
 const remote = (env) => execFileSync('git', ['-C', env.bare, 'show', 'main:sync-data.json'], { encoding: 'utf8' });
@@ -148,4 +149,68 @@ test('the ZIP holds manifest, plugin and page; the plugin declares only what it 
   assert.deepEqual(manifest.allowedHosts, ['api.github.com']);
   assert.ok(manifest.permissions.includes('http') && manifest.permissions.includes('nodeExecution'));
   assert.ok(manifest.dataSharing.flatMap((d) => d.hosts || []).includes('api.github.com'));
+  const reports = manifest.dataSharing.find((d) => d.recipient.includes('issue'));
+  assert.deepEqual(reports.data, []);
+  assert.deepEqual(reports.optionalData.sort(), ['credentials', 'userText']);
+});
+
+test('the built page holds the report section with report.js and the version', () => {
+  const manifest = JSON.parse(readFileSync(new URL('../src/manifest.json', import.meta.url), 'utf8'));
+  const page = buildIndexHtml();
+  assert.ok(!page.includes('<!-- report.html -->') && !page.includes('/* report.js */'));
+  assert.ok(page.includes('id="report-send"') && page.includes('function reportFormUrl('));
+  assert.ok(page.includes(`const PLUGIN_VERSION = "${manifest.version}";`));
+  assert.ok(buildPluginJs().startsWith(`const PLUGIN_VERSION = "${manifest.version}";`));
+});
+
+const REPORT = { kind: 'problem', title: 'Sync stops', text: 'It shows not-found.' };
+const REPORT_TOKEN = 'report-token';
+
+test('a report needs a token, a title and a text; the sync token is not used', async (t) => {
+  const env = await load(t);
+  await env.api.message({ type: 'setup', token: TOKEN, repository: REPO, folder: env.folder });
+  assert.deepEqual(await env.api.message({ type: 'report-state' }), { hasToken: false });
+  assert.equal((await env.api.message({ type: 'report-send', report: REPORT })).code, 'no-token');
+  const incomplete = await env.api.message({ type: 'report-send', report: { ...REPORT, text: ' ' }, token: REPORT_TOKEN });
+  assert.equal(incomplete.code, 'incomplete');
+  // A token GitHub does not let write issues there (here: the sync token) is not kept.
+  const refused = await env.api.message({ type: 'report-send', report: REPORT, token: TOKEN });
+  assert.deepEqual(refused, { ok: false, code: 'no-access', hasToken: false });
+  assert.ok(!('report-token' in env.api.secrets()));
+  assert.deepEqual(env.github.issues, []);
+});
+
+test('a report becomes an issue with only the text, version and device; the token is kept until Forget', async (t) => {
+  const env = await load(t);
+  const manifest = JSON.parse(readFileSync(new URL('../src/manifest.json', import.meta.url), 'utf8'));
+  const sent = await env.api.message({ type: 'report-send', report: REPORT, token: ` ${REPORT_TOKEN} ` });
+  assert.deepEqual(sent, { ok: true, url: 'https://github.com/nexumia-de/tabularium/issues/1', hasToken: true });
+  const [issue] = env.github.issues;
+  assert.equal(issue.title, 'Sync stops');
+  assert.equal(
+    issue.body,
+    `### What happened\n\nIt shows not-found.\n\n### Version\n\n${manifest.version}\n\n### Device\n\nDesktop`,
+  );
+  assert.deepEqual(issue.labels, ['bug']);
+  assert.equal(env.api.secrets()['report-token'], REPORT_TOKEN);
+  assert.ok(!('token' in env.api.secrets()));
+  // The saved token sends the next one; Forget removes it.
+  const idea = await env.api.message({ type: 'report-send', report: { ...REPORT, kind: 'idea' } });
+  assert.equal(idea.ok, true);
+  assert.equal(env.github.issues[1].body, '### What do you want to do\n\nIt shows not-found.');
+  assert.deepEqual(env.github.issues[1].labels, ['enhancement']);
+  assert.deepEqual(await env.api.message({ type: 'report-state' }), { hasToken: true });
+  assert.deepEqual(await env.api.message({ type: 'report-forget' }), { hasToken: false });
+  assert.deepEqual(await env.api.message({ type: 'report-state' }), { hasToken: false });
+  assert.deepEqual(env.snacks, []);
+});
+
+test('a report without a connection says offline and keeps no token', async (t) => {
+  const env = await load(t);
+  env.api.request = async () => {
+    throw new Error('[PluginHttp] request failed: fetch failed');
+  };
+  const sent = await env.api.message({ type: 'report-send', report: REPORT, token: REPORT_TOKEN });
+  assert.deepEqual(sent, { ok: false, code: 'offline', hasToken: false });
+  assert.ok(!('report-token' in env.api.secrets()));
 });

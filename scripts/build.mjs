@@ -1,6 +1,9 @@
-// Builds the plugin: plugin.js is folder.js, github.js, blob-sha.js and
-// cycle.js followed by src/plugin.js, one script for Super Productivity's
-// plugin runner. `node scripts/build.mjs` writes
+// Builds the plugin: plugin.js is the version from the manifest,
+// folder.js, github.js, blob-sha.js, cycle.js, report.js and feedback.js
+// followed by src/plugin.js, one script for Super Productivity's plugin
+// runner. index.html gets src/report.html (the "Report a Problem"
+// section) with report.js and the version, in place of its marker.
+// `node scripts/build.mjs` writes
 // dist/tabularium-<version>.zip with manifest.json, plugin.js and
 // index.html. No dependencies: the ZIP is written here (stored entries,
 // CRC-32 from node:zlib).
@@ -12,21 +15,44 @@ import { fileURLToPath } from 'node:url';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (name) => readFileSync(join(root, name), 'utf8');
 
-export const ENGINE_FILES = ['src/folder.js', 'src/github.js', 'src/blob-sha.js', 'src/cycle.js'];
+export const ENGINE_FILES = [
+  'src/folder.js',
+  'src/github.js',
+  'src/blob-sha.js',
+  'src/cycle.js',
+  'src/report.js',
+  'src/feedback.js',
+];
+
+const version = () => JSON.parse(read('src/manifest.json')).version;
+const versionLine = () => `const PLUGIN_VERSION = ${JSON.stringify(version())};`;
 
 export function engineSource() {
   return ENGINE_FILES.map(read).join('\n');
 }
 
 export function buildPluginJs() {
-  return `${engineSource()}\n${read('src/plugin.js')}`;
+  return `${versionLine()}\n${engineSource()}\n${read('src/plugin.js')}`;
+}
+
+const REPORT_MARKER = '<!-- report.html -->';
+const REPORT_SCRIPT_MARKER = '/* report.js */';
+
+// The page with the report section; replacement functions, so `$` in the
+// sources stays as written.
+export function buildIndexHtml() {
+  const page = read('src/index.html');
+  if (!page.includes(REPORT_MARKER)) throw new Error(`src/index.html lacks ${REPORT_MARKER}`);
+  const section = read('src/report.html').replace(REPORT_SCRIPT_MARKER, () => `${versionLine()}\n${read('src/report.js')}`);
+  return page.replace(REPORT_MARKER, () => section);
 }
 
 // The engine's functions with `api` as PluginAPI, for tests and for the
 // end-to-end test in Day Planner's repository (scripts/host.mjs).
 export function loadEngine(api) {
   const names = ['cyclePrepare', 'cycleFinish', 'folderList', 'folderWrite', 'folderHome', 'folderRun',
-    'githubClient', 'githubRepositories', 'blobSha', 'FOLDER_SCRIPTS'];
+    'githubClient', 'githubRepositories', 'githubCreateIssue', 'blobSha', 'FOLDER_SCRIPTS',
+    'reportBody', 'reportLabels', 'reportFormUrl', 'reportDevice', 'feedbackMessage', 'REPORT_MAX_URL'];
   return new Function('PluginAPI', `${engineSource()}\nreturn { ${names.join(', ')} };`)(api);
 }
 
@@ -73,13 +99,12 @@ function zip(files) {
 }
 
 export function buildZip() {
-  const manifest = JSON.parse(read('src/manifest.json'));
   const files = [
     ['manifest.json', read('src/manifest.json')],
     ['plugin.js', buildPluginJs()],
-    ['index.html', read('src/index.html')],
+    ['index.html', buildIndexHtml()],
   ];
-  return { name: `tabularium-${manifest.version}.zip`, data: zip(files) };
+  return { name: `tabularium-${version()}.zip`, data: zip(files) };
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

@@ -67,6 +67,12 @@ repository.
   `messageId`; `plugin.js` answers through `PluginAPI.onMessage`.
 - The manifest's `dataSharing` lists where user data goes; `userServer`
   marks a server the user chooses (`validate-manifest.util.ts`).
+  `data` (sent whenever the plugin is used) may be empty; `optionalData`
+  is sent only after a user action; known values include `userText`
+  (free text the user types for the recipient) and `credentials`
+  (`packages/plugin-api/src/types.ts`; `isValidDestination` in
+  `src/app/plugins/util/plugin-data-sharing.util.ts`). Every
+  `allowedHosts` entry must appear in some destination's `hosts`.
 
 # Sync
 

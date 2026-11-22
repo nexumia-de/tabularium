@@ -1,7 +1,8 @@
 // GitHub's REST API through PluginAPI.request (permission `http`, host
 // api.github.com in the manifest): the git data endpoints for one
 // repository, compare, the Contents API for the first commit of an empty
-// repository, and the repositories a token reaches. A failed request
+// repository, the repositories a token reaches, and a problem report as
+// an issue in Git Sync's repository. A failed request
 // rejects with an error carrying `.status` (Super Productivity's plugin
 // HTTP layer); these are turned into error codes for the page.
 
@@ -118,4 +119,31 @@ async function githubRepositories(token, api) {
   } catch (error) {
     throw githubError(error);
   }
+}
+
+// A problem report as an issue in Git Sync's own repository, with the
+// user's report token (docs/feedback.md); returns the issue's address.
+// Codes for the page: `no-access` (token refused, or it may not write
+// issues there), `offline`, `failed`. GitHub drops the labels when the
+// token's user may not set them.
+async function githubCreateIssue(token, repository, issue, api) {
+  let made;
+  try {
+    made = await PluginAPI.request(`${api || GITHUB_API}/repos/${repository}/issues`, {
+      method: 'POST',
+      body: { title: issue.title, body: issue.body, labels: issue.labels },
+      headers: {
+        Accept: 'application/vnd.github+json',
+        Authorization: `Bearer ${token}`,
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+      timeout: 60000,
+    });
+  } catch (error) {
+    const status = error && error.status;
+    const code = [401, 403, 404].includes(status) ? 'no-access' : status ? 'failed' : 'offline';
+    throw Object.assign(new Error(code), { code, status: status || 0 });
+  }
+  if (!made || typeof made.html_url !== 'string') throw Object.assign(new Error('failed'), { code: 'failed', status: 0 });
+  return made.html_url;
 }

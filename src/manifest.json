@@ -1,7 +1,7 @@
 {
   "id": "tabularium",
   "name": "Git Sync",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "manifestVersion": 1,
   "minSupVersion": "20.0.0",
   "description": "Keeps Super Productivity's local sync folder in a GitHub repository, so Day Planner on the phone shares the same data.",
@@ -31,6 +31,17 @@
         "timeTracked",
         "projectAndTagNames",
         "ids"
+      ]
+    },
+    {
+      "recipient": "GitHub (Git Sync's public issue list, only when you send a report)",
+      "hosts": [
+        "api.github.com"
+      ],
+      "data": [],
+      "optionalData": [
+        "userText",
+        "credentials"
       ]
     }
   ],

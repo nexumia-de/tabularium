@@ -51,6 +51,14 @@ token (Kind **GitHub Repository**).
 The plugin syncs every 5 minutes (adjustable), when the window gets the
 focus and shortly after you change something.
 
+## Report a problem
+
+**Report a Problem** at the bottom of Git Sync's page sends a problem
+or an idea to this repository's issues: directly with a GitHub token
+for reports, otherwise GitHub's issue form opens in the browser filled
+in. Only what you write, the plugin version and the kind of device are
+sent ([details](docs/feedback.md)).
+
 ## Develop
 
 ```sh

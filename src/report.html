@@ -1,0 +1,133 @@
+    <!-- "Report a Problem" (docs/feedback.md); the build puts this in place of
+         its marker in index.html, with report.js and the plugin version. -->
+    <details id="report">
+      <summary>Report a Problem</summary>
+      <p class="hint">
+        Goes to the public issue list of Git Sync on GitHub. Only what you write here, the plugin
+        version and the kind of device are sent.
+      </p>
+      <label for="report-kind">Kind</label>
+      <select id="report-kind">
+        <option value="problem">Problem</option>
+        <option value="idea">Idea</option>
+      </select>
+      <label for="report-title">Title</label>
+      <input id="report-title" autocomplete="off" />
+      <label for="report-text" id="report-text-label">What happened</label>
+      <textarea id="report-text" rows="6"></textarea>
+      <h2>Send Directly</h2>
+      <p class="hint">
+        With a GitHub token the issue is created here. Without one, GitHub opens in the browser with
+        everything filled in.
+      </p>
+      <div id="report-new-token">
+        <label for="report-token">GitHub Token</label>
+        <input id="report-token" type="password" autocomplete="off" />
+        <p class="hint">
+          Fine-grained, with “Issues: Read and write” for this app’s repository; not the sync token,
+          which may only write your sync repository.
+        </p>
+        <div class="buttons"><a class="button" target="_blank" rel="noopener" href="https://github.com/settings/personal-access-tokens/new?name=Git+Sync+reports&amp;description=Report+problems+from+Git+Sync&amp;issues=write">Create a Token</a></div>
+      </div>
+      <div id="report-saved" hidden>
+        <p>Token Saved <span class="hint">(kept in Super Productivity for this plugin)</span></p>
+        <div class="buttons"><button type="button" id="report-forget">Forget</button></div>
+      </div>
+      <div class="buttons">
+        <button type="button" id="report-form">Open on GitHub</button>
+        <button type="button" id="report-send">Send</button>
+      </div>
+      <div class="result" id="report-result" role="status" aria-live="polite"></div>
+    </details>
+    <script>
+      /* report.js */
+      (() => {
+        const FAILED = {
+          'no-access': 'GitHub did not accept the token. Check that it may write issues in this repository.',
+          offline: 'GitHub cannot be reached right now.',
+          failed: 'GitHub did not create the issue.',
+        };
+        let hasToken = false;
+        const kind = () => ($('report-kind').value === 'idea' ? 'idea' : 'problem');
+        const report = () => ({
+          kind: kind(),
+          title: $('report-title').value.trim(),
+          text: $('report-text').value.trim(),
+          version: PLUGIN_VERSION,
+          device: reportDevice(navigator.userAgent),
+        });
+        // The main action is Send with a token, Open on GitHub without one.
+        function update() {
+          const r = report();
+          $('report-text-label').textContent = REPORT_KINDS[r.kind].heading;
+          $('report-new-token').hidden = hasToken;
+          $('report-saved').hidden = !hasToken;
+          const direct = hasToken || !!$('report-token').value.trim();
+          $('report-send').hidden = !direct;
+          $('report-send').disabled = !(r.title && r.text);
+          $('report-send').classList.toggle('primary', direct);
+          $('report-form').classList.toggle('primary', !direct);
+        }
+        for (const id of ['report-kind', 'report-title', 'report-text', 'report-token']) {
+          $(id).addEventListener('input', update);
+        }
+        $('report-form').addEventListener('click', () => {
+          const r = report();
+          const form = reportFormUrl(r);
+          let note = '';
+          if (form.shortened) {
+            note = 'The text was too long for the address; paste the rest from here.';
+            if (navigator.clipboard) {
+              navigator.clipboard.writeText(r.text).then(
+                () => ($('report-result').textContent = 'The text was too long for the address; it is on the clipboard to paste.'),
+                () => {},
+              );
+            }
+          }
+          window.open(form.url, '_blank', 'noopener');
+          $('report-result').textContent = note;
+        });
+        $('report-forget').addEventListener('click', async () => {
+          hasToken = (await send({ type: 'report-forget' })).hasToken;
+          $('report-token').value = '';
+          update();
+        });
+        $('report-send').addEventListener('click', async () => {
+          $('report-send').disabled = true;
+          $('report-send').textContent = 'Sending…';
+          $('report-result').textContent = '';
+          const r = report();
+          const answer = await send({
+            type: 'report-send',
+            report: { kind: r.kind, title: r.title, text: r.text },
+            token: $('report-token').value,
+          }).catch(() => ({ ok: false, code: 'failed' }));
+          $('report-send').textContent = 'Send';
+          if (typeof answer.hasToken === 'boolean') hasToken = answer.hasToken;
+          if (answer.ok) {
+            $('report-token').value = '';
+            $('report-title').value = '';
+            $('report-text').value = '';
+            const view = Object.assign(document.createElement('a'), {
+              className: 'button',
+              target: '_blank',
+              rel: 'noopener',
+              href: answer.url,
+              textContent: 'View Issue',
+            });
+            $('report-result').replaceChildren('Thank You. The issue is on GitHub. ', view);
+          } else {
+            // The text stays; Open on GitHub is the way out.
+            $('report-result').textContent = `${FAILED[answer.code] || FAILED.failed} You can still use Open on GitHub.`;
+          }
+          update();
+        });
+        send({ type: 'report-state' })
+          .then((state) => {
+            hasToken = !!state.hasToken;
+            update();
+          })
+          .catch(update);
+        update();
+      })();
+    </script>
