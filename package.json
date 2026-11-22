@@ -1,0 +1,16 @@
+{
+  "name": "tabularium",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Git Sync: Super Productivity's local sync folder in a Git repository, shared with Day Planner",
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "build": "node scripts/build.mjs",
+    "check": "node --check src/plugin.js && node --check src/git-cycle.cjs && npm test && npm run build"
+  }
+}

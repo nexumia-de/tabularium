@@ -1,0 +1,12 @@
+# Weekly pull requests for new versions of GitHub Actions; every action is
+# pinned to a commit (phosh-toolkit docs/dependency-updates.md). The
+# plugin has no npm dependencies.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ['*']
