@@ -18,7 +18,8 @@
         margin: 16px 0 4px;
         font-weight: 600;
       }
-      input {
+      input,
+      textarea {
         box-sizing: border-box;
         width: 100%;
         min-height: 44px;
@@ -29,7 +30,15 @@
         border: 1px solid var(--divider-color, currentColor);
         border-radius: 6px;
       }
-      p.hint {
+      h2 {
+        font-size: 1em;
+        margin: 24px 0 0;
+      }
+      [hidden] {
+        display: none !important;
+      }
+      p.hint,
+      span.hint {
         margin: 4px 0 0;
         opacity: 0.75;
         font-size: 0.9em;
@@ -50,6 +59,10 @@
         color: inherit;
         background: transparent;
         cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: default;
       }
       button.primary {
         background: var(--c-primary, #1976d2);
@@ -268,5 +281,6 @@
         if (r && r.ok && !$('target').value) $('target').value = r.suggested;
       });
     </script>
+<!-- report.html -->
   </body>
 </html>

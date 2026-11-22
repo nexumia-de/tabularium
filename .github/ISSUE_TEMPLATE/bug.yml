@@ -1,0 +1,42 @@
+name: Bug report
+description: Something in Git Sync does not work as expected.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open Git Sync's page in Super Productivity
+        2. …
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Git Sync's version, from Super Productivity's plugin list, e.g. "0.4.0".
+    validations:
+      required: true
+  - type: dropdown
+    id: device
+    attributes:
+      label: Device
+      options:
+        - Desktop
+        - Phone (Phosh)
+        - Phone (Android)
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log output
+      description: The status line on Git Sync's page or the error message shown, if any. Please leave out task titles and tokens.
+      render: text

@@ -3,7 +3,9 @@
 // blobs, the Contents API's first commit in an empty repository, and
 // /user/repos. Answers like GitHub where the plugin relies on it: 404 for a
 // missing ref, 409 for an empty repository, 422 for a ref update that is
-// not a fast-forward, 401 for a wrong token.
+// not a fast-forward, 401 for a wrong token. Problem reports: POST
+// /repos/<issueRepository>/issues with `issueToken` makes an issue; the
+// sync token gets 403 there, like a fine-grained token without access.
 import { createServer } from 'node:http';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -12,7 +14,14 @@ import { join } from 'node:path';
 
 const ZERO = '0'.repeat(40);
 
-export async function startGithub({ bare, token = 'test', repository = 'me/sp-sync' }) {
+export async function startGithub({
+  bare,
+  token = 'test',
+  repository = 'me/sp-sync',
+  issueRepository = 'nexumia-de/tabularium',
+  issueToken = 'report-token',
+}) {
+  const issues = [];
   const git = (args, { input, env } = {}) => {
     const r = spawnSync('git', ['-C', bare, ...args], { input, env: { ...process.env, ...env } });
     if (r.status !== 0) throw Object.assign(new Error(String(r.stderr)), { git: true });
@@ -129,7 +138,15 @@ export async function startGithub({ bare, token = 'test', repository = 'me/sp-sy
     req.on('end', () => {
       seen.push(`${req.method} ${req.url}`);
       let answer;
-      if (req.headers.authorization !== `Bearer ${token}`) answer = [401, { message: 'Bad credentials' }];
+      const issuePath = `/repos/${issueRepository}/issues`;
+      if (req.method === 'POST' && req.url === issuePath && req.headers.authorization === `Bearer ${issueToken}`) {
+        const body = JSON.parse(raw);
+        issues.push({ ...body, headers: req.headers });
+        const number = issues.length;
+        answer = [201, { number, html_url: `https://github.com/${issueRepository}/issues/${number}` }];
+      } else if (req.method === 'POST' && req.url === issuePath && req.headers.authorization === `Bearer ${token}`) {
+        answer = [403, { message: 'Resource not accessible by personal access token' }];
+      } else if (req.headers.authorization !== `Bearer ${token}`) answer = [401, { message: 'Bad credentials' }];
       else {
         try {
           answer = handle(req.method, req.url, raw ? JSON.parse(raw) : null);
@@ -142,5 +159,5 @@ export async function startGithub({ bare, token = 'test', repository = 'me/sp-sy
     });
   });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
-  return { api: `http://127.0.0.1:${server.address().port}`, seen, close: () => server.close() };
+  return { api: `http://127.0.0.1:${server.address().port}`, seen, issues, close: () => server.close() };
 }

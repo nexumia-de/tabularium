@@ -13,6 +13,7 @@ Change history is in [log.md](log.md).
 
 * [Protocol](protocol.md) - Only the plugin writes main, Day Planner hands over on day-planner; the cycle prepare / sync / finish, stale hand-overs, error codes.
 * [Guided setup](setup.md) - The page's click-through setup: GitHub's repository and token forms filled in by link, the repository picked from a list, the folder created and the first cycle run.
+* [Report a problem](feedback.md) - The page's Report a Problem: an issue in this repository sent with a separate report token, or GitHub's issue form opened filled in; only the text, version and device.
 * [Super Productivity facts](super-productivity-facts.md) - What the plugin relies on in Super Productivity 20.0.0: plugin API, node execution, manual-only sync, the local file provider.
 * [Dependencies](dependencies.md) - None; Node for tests and the build.
 

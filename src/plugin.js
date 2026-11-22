@@ -7,8 +7,9 @@
 // through GitHub's API (github.js). Settings, token and state are per
 // device (PluginAPI secret storage); the settings page (index.html) talks
 // to this file through onMessage. Logs and messages name codes and counts,
-// never task data. The build puts folder.js, github.js, blob-sha.js and
-// cycle.js in front of this file.
+// never task data. "Report a Problem" on the page goes to feedback.js.
+// The build puts PLUGIN_VERSION (from the manifest), folder.js, github.js,
+// blob-sha.js, cycle.js, report.js and feedback.js in front of this file.
 
 const KEYS = { settings: 'settings', token: 'token', state: 'state' };
 const DEFAULTS = { folder: '', repository: '', intervalMinutes: 5 };
@@ -227,6 +228,7 @@ async function onMessage(message) {
     }
   }
   if (type === 'setup') return { result: await setUp(message), ...view() };
+  if (typeof type === 'string' && type.startsWith('report-')) return feedbackMessage(message, PLUGIN_VERSION);
   return { error: 'unknown message' };
 }
 
